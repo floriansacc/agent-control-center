@@ -1,0 +1,228 @@
+{
+  "name": "agent-control-center",
+  "displayName": "Agent Control Center",
+  "description": "Sidebar of running Claude Code sessions (VS Code and iTerm): status, terminal, and ports.",
+  "version": "0.2.0",
+  "publisher": "local",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "files": [
+    "extension.js",
+    "focus.js",
+    "core.js",
+    "bin/agentctl",
+    "media/**"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agentControl",
+          "title": "Agents",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "agentControl": [
+        {
+          "id": "agentControl.sessions",
+          "name": "Sessions"
+        },
+        {
+          "id": "agentControl.ports",
+          "name": "Other Ports",
+          "visibility": "collapsed"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "agentControl.sessions",
+        "contents": "No Claude Code sessions running.\nStart `claude` in any terminal (VS Code or iTerm) and it shows up here."
+      }
+    ],
+    "commands": [
+      {
+        "command": "agentControl.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)",
+        "category": "Agents"
+      },
+      {
+        "command": "agentControl.focus",
+        "title": "Focus Terminal",
+        "icon": "$(terminal)",
+        "category": "Agents"
+      },
+      {
+        "command": "agentControl.openFolder",
+        "title": "Open Folder in VS Code",
+        "icon": "$(folder-opened)",
+        "category": "Agents"
+      },
+      {
+        "command": "agentControl.copyPath",
+        "title": "Copy Path",
+        "category": "Agents"
+      },
+      {
+        "command": "agentControl.stop",
+        "title": "Stop Session…",
+        "category": "Agents"
+      },
+      {
+        "command": "agentControl.openPort",
+        "title": "Open in Browser",
+        "icon": "$(globe)",
+        "category": "Agents"
+      },
+      {
+        "command": "agentControl.killPort",
+        "title": "Stop Process on Port…",
+        "category": "Agents"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentControl.refresh",
+          "when": "view == agentControl.sessions",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "agentControl.focus",
+          "when": "view == agentControl.sessions && viewItem =~ /^session/",
+          "group": "inline@1"
+        },
+        {
+          "command": "agentControl.openFolder",
+          "when": "view == agentControl.sessions && viewItem =~ /^session/",
+          "group": "inline@2"
+        },
+        {
+          "command": "agentControl.focus",
+          "when": "view == agentControl.sessions && viewItem =~ /^session/",
+          "group": "1_nav@1"
+        },
+        {
+          "command": "agentControl.openFolder",
+          "when": "view == agentControl.sessions && viewItem =~ /^session/",
+          "group": "1_nav@2"
+        },
+        {
+          "command": "agentControl.copyPath",
+          "when": "view == agentControl.sessions && viewItem =~ /^session/",
+          "group": "1_nav@3"
+        },
+        {
+          "command": "agentControl.stop",
+          "when": "view == agentControl.sessions && viewItem == session.alive",
+          "group": "9_danger"
+        },
+        {
+          "command": "agentControl.openPort",
+          "when": "view =~ /^agentControl\\./ && viewItem == port",
+          "group": "inline"
+        },
+        {
+          "command": "agentControl.openPort",
+          "when": "view =~ /^agentControl\\./ && viewItem == port",
+          "group": "1_nav"
+        },
+        {
+          "command": "agentControl.killPort",
+          "when": "view =~ /^agentControl\\./ && viewItem == port",
+          "group": "9_danger"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "agentControl.focus",
+          "when": "false"
+        },
+        {
+          "command": "agentControl.openFolder",
+          "when": "false"
+        },
+        {
+          "command": "agentControl.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "agentControl.stop",
+          "when": "false"
+        },
+        {
+          "command": "agentControl.openPort",
+          "when": "false"
+        },
+        {
+          "command": "agentControl.killPort",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Agent Control Center",
+      "properties": {
+        "agentControl.refreshIntervalMs": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 1000,
+          "description": "How often to rescan processes and ports. Status changes from the hook appear immediately regardless."
+        },
+        "agentControl.notifyOnWaiting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when a session needs input (permission prompt)."
+        },
+        "agentControl.notifyOnDone": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a notification when a session finishes its turn."
+        },
+        "agentControl.hideEphemeralPorts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hide ports ≥ 49152 (usually app IPC, not dev servers) from Other Ports."
+        },
+        "agentControl.ignoredProcesses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "ControlCenter",
+            "rapportd",
+            "Code Helper",
+            "Electron",
+            "Google Drive",
+            "figma_agent",
+            "Notion",
+            "Spotify",
+            "Dropbox",
+            "Slack",
+            "Discord",
+            "Claude"
+          ],
+          "description": "Process name prefixes hidden from Other Ports. Ports owned by an agent session are always shown."
+        }
+      }
+    }
+  }
+}
