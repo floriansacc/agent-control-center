@@ -52,6 +52,8 @@ struct SessionListView: View {
     let style: Style
     @State private var showOtherPorts = false
     @State private var contentHeight: CGFloat = 0
+    /// Class, not @State value: updating it must not trigger a re-render.
+    @State private var windowFitter = MenuWindowFitter()
 
     private static let menuWidth: CGFloat = 420
     private static let menuMaxHeight: CGFloat = 520
@@ -75,6 +77,21 @@ struct SessionListView: View {
             maxWidth: style == .menu ? Self.menuWidth : .infinity,
             maxHeight: style == .menu ? nil : .infinity
         )
+        .background {
+            if style == .menu {
+                // Measures the content's own height (before the top-pinning frame below stretches it).
+                GeometryReader { geo in
+                    WindowReader { windowFitter.attach($0) }
+                        .onAppear { windowFitter.update(height: geo.size.height) }
+                        .onChange(of: geo.size.height) { _, h in windowFitter.update(height: h) }
+                }
+            }
+        }
+        // While the window catches up after the content shrinks, keep the content pinned to the top:
+        // the window centres it otherwise, which made it jump down and back up (flicker).
+        .frame(maxHeight: style == .menu ? .infinity : nil, alignment: .top)
+        // Animated height changes make the window resize lag behind the content; snap instead.
+        .transaction { if style == .menu { $0.animation = nil } }
         .onAppear { model.viewAppeared() }
         .onDisappear { model.viewDisappeared() }
     }
