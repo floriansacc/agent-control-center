@@ -5,6 +5,7 @@ const vscode = require('vscode');
 const fs = require('fs');
 const { snapshot, STATUS_DIR, AGENTCTL } = require('./core');
 const { focusSession, handleFocusRequest, openFolderWindow } = require('./focus');
+const { registerWindow } = require('./windows');
 
 /**
  * @typedef {import('./core').Session} Session
@@ -157,6 +158,7 @@ function activate(context) {
   } catch (err) {
     console.error('[agent-control-center] chmod agentctl', err);
   }
+  registerWindow(context);
 
   const sessionsTree = new AgentTree('sessions');
   const portsTree = new AgentTree('ports');

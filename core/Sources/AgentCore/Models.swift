@@ -101,7 +101,7 @@ public enum Paths {
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/agent-status")
     }
 
-    /// Written by `Focus` to ask the VS Code window that owns a terminal to reveal it.
+    /// Written by `Focus` to ask the VS Code window that owns a session to reveal its terminal / Claude tab.
     /// Dot-prefixed and without .json so the scanner never mistakes it for a session.
     public static var focusRequest: URL { statusDir.appendingPathComponent(".focus-request") }
 

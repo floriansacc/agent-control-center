@@ -64,6 +64,38 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertFalse(Scanner.isNoise(l(57171, "dart"), ScanOptions(hideEphemeralPorts: false)))
     }
 
+    func testVSCodeWindowMatchesByAncestryBeforeFolder() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acc-\(UUID().uuidString)")
+        setenv("AGENT_STATUS_DIR", dir.path, 1)
+        defer {
+            unsetenv("AGENT_STATUS_DIR")
+            try? FileManager.default.removeItem(at: dir)
+        }
+        try FileManager.default.createDirectory(at: VSCodeWindows.dir, withIntermediateDirectories: true)
+        // Window 100 has the parent folder open; window 200 owns the session (its extension host spawned claude).
+        let windows = [
+            VSCodeWindow(extHostPid: 100, roots: ["/work"], workspaceFile: nil, terminalShellPids: [101]),
+            VSCodeWindow(extHostPid: 200, roots: ["/work/app"], workspaceFile: "/work/app.code-workspace", terminalShellPids: []),
+        ]
+        for w in windows {
+            try JSONEncoder().encode(w).write(to: VSCodeWindows.dir.appendingPathComponent("\(w.extHostPid).json"))
+        }
+        let procs = ProcessTable.parse("""
+          100 1 ?? /Applications/Visual Studio Code.app/Code Helper (Plugin)
+          101 100 ttys001 -zsh
+          200 1 ?? /Applications/Visual Studio Code.app/Code Helper (Plugin)
+          201 200 ?? /x/native-binary/claude
+          202 101 ttys001 claude
+        """)
+        func session(_ pid: Int32?, _ cwd: String) -> Session {
+            Session(key: "k", pid: pid, cwd: cwd, project: "p", status: .idle, host: .vscodePanel, ports: [])
+        }
+        XCTAssertEqual(VSCodeWindows.window(for: session(201, "/work/app"), procs)?.openTarget, "/work/app.code-workspace")
+        XCTAssertEqual(VSCodeWindows.window(for: session(202, "/work/app"), procs)?.extHostPid, 100, "terminal shell pid wins over folder")
+        XCTAssertEqual(VSCodeWindows.window(for: session(nil, "/work/app/src"), procs)?.extHostPid, 200, "deepest root by folder")
+        XCTAssertEqual(VSCodeWindows.window(for: session(nil, "/work/lib"), procs)?.openTarget, "/work")
+    }
+
     func testSplitFields() {
         let (fields, rest) = splitFields("  12   34 ttys001   /a b/c d  ", count: 3)
         XCTAssertEqual(fields, ["12", "34", "ttys001"])

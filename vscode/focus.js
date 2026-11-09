@@ -32,24 +32,20 @@ async function showTerminalFor(pid) {
   return false;
 }
 
-/** @param {string} cwd */
-function isInThisWindow(cwd) {
-  return (vscode.workspace.workspaceFolders ?? []).some((f) => {
-    const root = f.uri.fsPath;
-    return cwd === root || cwd.startsWith(root + path.sep);
-  });
-}
-
 /**
  * Handles a session that lives in this window. Returns false when it is not ours.
- * @param {{ host: string, pid?: number | null, cwd: string }} s
+ * @param {{ host: string, pid?: number | null, sessionId?: string | null }} s
  */
 async function focusInThisWindow(s) {
-  if (s.host === 'vscode-terminal') return showTerminalFor(s.pid ?? undefined);
-  if (s.host === 'vscode-panel' && isInThisWindow(s.cwd)) {
-    // TODO: target the specific Claude panel/tab once the Claude extension exposes a way to
-    // select a session by id; this focuses whichever Claude panel was used last.
-    await vscode.commands.executeCommand('claude-vscode.focus');
+  if (s.pid == null) return false;
+  if (s.host === 'vscode-terminal') return showTerminalFor(s.pid);
+  if (s.host === 'vscode-panel') {
+    // Claude panel processes are children of their window's extension host, which is our process.
+    // (Matching by folder is ambiguous: two windows can contain the same folder.)
+    if (!(await ancestors(s.pid)).includes(process.pid)) return false;
+    // Reveals the tab / sidebar already holding this session. Never use `claude-vscode.focus`:
+    // when no Claude panel is visible it falls back to opening a new conversation.
+    if (s.sessionId) await vscode.commands.executeCommand('claude-vscode.editor.open', s.sessionId);
     return true;
   }
   return false;
@@ -88,7 +84,7 @@ async function focusSession(s) {
  * Every window receives it; only the one that has the terminal / folder acts.
  */
 async function handleFocusRequest() {
-  /** @type {{ pid?: number | null, cwd: string, host: string, at: number }} */
+  /** @type {{ pid?: number | null, sessionId?: string | null, cwd: string, host: string, at: number }} */
   let req;
   try {
     req = JSON.parse(await fs.readFile(FOCUS_REQUEST, 'utf8'));

@@ -2,7 +2,7 @@
   "name": "agent-control-center",
   "displayName": "Agent Control Center",
   "description": "Sidebar of running Claude Code sessions (VS Code and iTerm): status, terminal, and ports.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "local",
   "license": "UNLICENSED",
   "engines": {
@@ -13,11 +13,12 @@
   ],
   "main": "./extension.js",
   "files": [
+    "bin/agentctl",
+    "core.js",
     "extension.js",
     "focus.js",
-    "core.js",
-    "bin/agentctl",
-    "media/**"
+    "media/**",
+    "windows.js"
   ],
   "extensionKind": [
     "ui"

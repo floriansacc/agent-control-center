@@ -42,8 +42,10 @@ public enum Focus {
         case .iterm:
             return focusIterm(session)
         case .vscodeTerminal, .vscodePanel:
+            // The window's own root, not the session folder: `code <subfolder>` would open a new window.
+            let target = VSCodeWindows.window(for: session, ProcessTable.read())?.openTarget ?? session.cwd
             writeFocusRequest(session)
-            return openInVSCode(session.cwd) ? .focused : .notFound
+            return openInVSCode(target) ? .focused : .notFound
         case .other:
             return .notFound
         }
@@ -62,6 +64,7 @@ public enum Focus {
     static func writeFocusRequest(_ session: Session) {
         let request: [String: Any] = [
             "pid": session.pid.map { Int($0) } ?? NSNull(),
+            "sessionId": session.sessionId ?? NSNull(),
             "cwd": session.cwd,
             "host": session.host.rawValue,
             "at": (Date().timeIntervalSince1970 * 1000).rounded(),
