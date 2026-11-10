@@ -141,9 +141,9 @@ final class AppModel: ObservableObject {
             if s.status == .waiting, notifyOnWaiting {
                 post(s, title: "\(s.project) needs input", body: s.message ?? "Claude is waiting for you")
             } else if s.status == .done, before == .working, notifyOnDone {
-                post(s, title: "\(s.project) finished", body: s.lastPrompt ?? "Claude finished its turn")
+                post(s, title: "\(s.project) finished", body: s.lastResponse ?? s.lastPrompt ?? "Claude finished its turn")
             } else if s.status == .error, notifyOnWaiting {
-                post(s, title: "\(s.project) stopped with an error", body: s.lastPrompt ?? "")
+                post(s, title: "\(s.project) stopped with an error", body: s.message ?? s.lastResponse ?? s.lastPrompt ?? "")
             }
         }
     }

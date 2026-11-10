@@ -68,7 +68,8 @@ case "list":
         let status = s.statusSince != nil ? "\(s.status.label) \(ago(s.statusSince))" : s.status.label
         let parts = [s.branch, status, s.host.label, s.tty.map { "tty \($0)" }, s.pid.map { "pid \($0)" }].compactMap { $0 }
         print("● \(s.project)  \(parts.joined(separator: " · "))")
-        if let prompt = s.lastPrompt { print("    “\(prompt.prefix(90))”") }
+        if let prompt = s.lastPrompt { print("    you: \(prompt.prefix(90))") }
+        if let response = s.lastResponse { print("    claude: \(response.prefix(90))") }
         for p in s.ports { print("    :\(p.port)  \(p.command) (pid \(p.pid))\(p.viaCwd == true ? " · same folder" : "")") }
     }
     if !snap.otherPorts.isEmpty {

@@ -226,8 +226,8 @@ struct SessionRow: View {
                 if session.status == .waiting, let message = session.message {
                     Text(message).font(.caption).foregroundStyle(.orange).lineLimit(2)
                 }
-                if let prompt = session.lastPrompt {
-                    Text(prompt).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                if let summary = session.summary {
+                    Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.tail)
                 }
                 HStack(spacing: 4) {
                     Label(session.host.label, systemImage: session.host.symbol)
@@ -268,6 +268,8 @@ struct SessionRow: View {
         var lines = [session.cwd]
         if let tty = session.tty, tty != "??" { lines.append("\(session.host.label) · \(tty)") }
         if let pid = session.pid { lines.append("pid \(pid)") }
+        if let prompt = session.lastPrompt { lines.append("You: \(prompt)") }
+        if let response = session.lastResponse { lines.append("Claude: \(response)") }
         if session.status == .working, let tool = session.lastTool { lines.append("last tool: \(tool)") }
         if session.status == .untracked { lines.append("Started before the status hook was installed.") }
         lines.append("Click to jump to this session.")

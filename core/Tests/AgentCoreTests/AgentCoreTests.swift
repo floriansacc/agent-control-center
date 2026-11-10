@@ -96,6 +96,17 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertEqual(VSCodeWindows.window(for: session(nil, "/work/lib"), procs)?.openTarget, "/work")
     }
 
+    func testSummaryShowsPromptDuringTurnAndReplyAfter() {
+        var s = Session(key: "k", cwd: "/w", project: "w", status: .working, host: .iterm, ports: [])
+        s.lastPrompt = "fix the colors"
+        s.lastResponse = "Fixed the color mapping"
+        XCTAssertEqual(s.summary, "fix the colors")
+        s.status = .done
+        XCTAssertEqual(s.summary, "Fixed the color mapping")
+        s.lastResponse = nil
+        XCTAssertEqual(s.summary, "fix the colors")
+    }
+
     func testSplitFields() {
         let (fields, rest) = splitFields("  12   34 ttys001   /a b/c d  ", count: 3)
         XCTAssertEqual(fields, ["12", "34", "ttys001"])

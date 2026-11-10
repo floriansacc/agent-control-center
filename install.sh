@@ -1,8 +1,8 @@
 #!/bin/sh
 # Installs (or with --uninstall, removes) the pieces of Agent Control Center.
 #
-#   ./install.sh                 everything: hook + VS Code extension + menu bar app
-#   ./install.sh vscode app      only some parts (hook | vscode | app)
+#   ./install.sh                 everything: hook + VS Code extension + menu bar app + agentctl CLI
+#   ./install.sh vscode app      only some parts (hook | vscode | app | cli)
 #   ./install.sh --uninstall     remove everything
 #
 # Idempotent. Existing Claude hooks (e.g. iTerm's cc-status) are kept.
@@ -17,6 +17,7 @@ EXT_ID="local.agent-control-center"
 VSIX="$ROOT/dist/agent-control-center.vsix"
 APP="$HOME/Applications/Agent Control Center.app"
 APP_EXE="AgentControlApp"
+CLI="$HOME/.local/bin/agentctl"
 BUNDLE_ID="local.agent-control-center"
 CODE=$(command -v code || echo "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code")
 
@@ -73,6 +74,19 @@ install_vscode() {
   done
 }
 
+install_cli() {
+  echo "→ Installing agentctl to $CLI"
+  mkdir -p "$(dirname "$CLI")"
+  # A copy, not a symlink: it must survive `swift package clean`.
+  cp "$BIN_DIR/agentctl" "$CLI.tmp"
+  chmod +x "$CLI.tmp"
+  mv -f "$CLI.tmp" "$CLI"
+  case ":$PATH:" in
+    *":$(dirname "$CLI"):"*) ;;
+    *) echo "  $(dirname "$CLI") is not on your PATH; add it to use \`agentctl\` directly." ;;
+  esac
+}
+
 install_app() {
   echo "→ Bundling $APP"
   pkill -x "$APP_EXE" 2>/dev/null || true
@@ -117,16 +131,17 @@ if [ "${1:-}" = "--uninstall" ]; then
     "$APP/Contents/MacOS/$APP_EXE" --unregister-login-item 2>/dev/null || true
     rm -rf "$APP"
   fi
+  rm -f "$CLI"
   rm -rf "$HOME/.claude/agent-status"
   echo "Uninstalled. Reload VS Code windows to remove the sidebar."
   exit 0
 fi
 
-[ $# -gt 0 ] || set -- hook vscode app
+[ $# -gt 0 ] || set -- hook vscode app cli
 for part in "$@"; do
   case "$part" in
-    hook|vscode|app) ;;
-    *) echo "unknown part: $part (expected hook, vscode, app)" >&2; exit 64 ;;
+    hook|vscode|app|cli) ;;
+    *) echo "unknown part: $part (expected hook, vscode, app, cli)" >&2; exit 64 ;;
   esac
 done
 for part in "$@"; do
@@ -146,6 +161,7 @@ for part in "$@"; do
       install_app
       echo "Agent Control Center is in the menu bar (and starts at login)."
       ;;
+    cli) install_cli ;;
   esac
 done
 echo "Done."

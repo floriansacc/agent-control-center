@@ -70,6 +70,8 @@ public struct Session: Codable, Sendable, Identifiable {
     public var updatedAt: Double?
     public var startedAt: Double?
     public var lastPrompt: String?
+    /// Claude's reply at the end of the last turn, as plain text.
+    public var lastResponse: String?
     public var lastTool: String?
     public var message: String?
     public var host: SessionHost
@@ -79,6 +81,15 @@ public struct Session: Codable, Sendable, Identifiable {
     public var ports: [Listener]
 
     public var id: String { key }
+
+    /// The line describing the session: what Claude is working on while a turn runs, what it answered once
+    /// the turn is over.
+    public var summary: String? {
+        switch status {
+        case .working, .waiting: return lastPrompt
+        default: return lastResponse ?? lastPrompt
+        }
+    }
 }
 
 public struct Snapshot: Codable, Sendable {

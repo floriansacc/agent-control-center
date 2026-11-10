@@ -39,8 +39,8 @@ window's extension watches that file; the one owning the terminal reveals it.
 ## Install
 
 ```sh
-./install.sh                  # hook + VS Code extension (all profiles) + menu bar app
-./install.sh vscode app       # rebuild/reinstall only some parts (hook | vscode | app)
+./install.sh                  # hook + VS Code extension (all profiles) + menu bar app + agentctl
+./install.sh vscode app       # rebuild/reinstall only some parts (hook | vscode | app | cli)
 ./install.sh --uninstall
 ```
 
@@ -50,10 +50,12 @@ The first click on an iTerm session asks macOS for permission to control iTerm.
 
 ## CLI
 
+`./install.sh cli` copies `agentctl` to `~/.local/bin`.
+
 ```sh
-vscode/bin/agentctl list                 # human-readable
-vscode/bin/agentctl snapshot --pretty    # JSON
-vscode/bin/agentctl focus <pid|session-id>
+agentctl list                 # human-readable
+agentctl snapshot --pretty    # JSON
+agentctl focus <pid|session-id>
 ```
 
 Tests: `swift test --package-path core`.

@@ -63,6 +63,7 @@ public final class Scanner: @unchecked Sendable {
                 updatedAt: updatedAt == 0 ? nil : updatedAt,
                 startedAt: (data["started_at"] as? NSNumber)?.doubleValue,
                 lastPrompt: Self.nonEmpty(data["last_prompt"]),
+                lastResponse: Self.nonEmpty(data["last_response"]),
                 lastTool: Self.nonEmpty(data["last_tool"]),
                 message: Self.nonEmpty(data["message"]),
                 host: Self.detectHost(procs, pid: pid, termProgram: data["term_program"] as? String),

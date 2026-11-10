@@ -14,7 +14,7 @@ const { registerWindow } = require('./windows');
  * @typedef {import('./core').Status} Status
  * @typedef {{ kind: 'session', session: Session }
  *   | { kind: 'port', port: Listener, parentKey: string }
- *   | { kind: 'prompt', session: Session }} Node
+ *   | { kind: 'summary', session: Session }} Node
  */
 
 /** @type {Record<Status, { icon: string, color?: string, label: string }>} */
@@ -50,6 +50,14 @@ const meta = (s) => STATUS_META[s] ?? STATUS_META.idle;
 /** @param {string} text @param {number} max */
 const truncate = (text, max) => (text.length > max ? text.slice(0, max - 1) + '…' : text);
 
+/**
+ * The line describing a session: what Claude works on during a turn, what it answered after.
+ * Mirrors `Session.summary` in core/Sources/AgentCore/Models.swift.
+ * @param {Session} s
+ */
+const summary = (s) =>
+  s.status === 'working' || s.status === 'waiting' ? s.lastPrompt : (s.lastResponse ?? s.lastPrompt);
+
 const config = () => vscode.workspace.getConfiguration('agentControl');
 
 /** @implements {vscode.TreeDataProvider<Node>} */
@@ -84,7 +92,7 @@ class AgentTree {
     if (node.kind !== 'session') return [];
     /** @type {Node[]} */
     const children = [];
-    if (node.session.lastPrompt) children.push({ kind: 'prompt', session: node.session });
+    if (summary(node.session)) children.push({ kind: 'summary', session: node.session });
     for (const port of node.session.ports) children.push({ kind: 'port', port, parentKey: node.session.key });
     return children;
   }
@@ -92,11 +100,13 @@ class AgentTree {
   /** @param {Node} node */
   getTreeItem(node) {
     if (node.kind === 'session') return sessionItem(node.session);
-    if (node.kind === 'prompt') {
-      const item = new vscode.TreeItem(truncate(node.session.lastPrompt ?? '', 80));
-      item.id = `${node.session.key}/prompt`;
-      item.iconPath = new vscode.ThemeIcon('comment');
-      item.tooltip = node.session.lastPrompt;
+    if (node.kind === 'summary') {
+      const text = summary(node.session) ?? '';
+      const isResponse = text === node.session.lastResponse;
+      const item = new vscode.TreeItem(truncate(text, 80));
+      item.id = `${node.session.key}/summary`;
+      item.iconPath = new vscode.ThemeIcon(isResponse ? 'sparkle' : 'comment');
+      item.tooltip = `${isResponse ? 'Claude' : 'You'}: ${text}`;
       return item;
     }
     const { port } = node;
@@ -118,7 +128,7 @@ class AgentTree {
 /** @param {Session} s */
 function sessionItem(s) {
   const m = meta(s.status);
-  const hasChildren = Boolean(s.lastPrompt) || s.ports.length > 0;
+  const hasChildren = Boolean(summary(s)) || s.ports.length > 0;
   const item = new vscode.TreeItem(
     s.project,
     hasChildren
@@ -136,7 +146,8 @@ function sessionItem(s) {
   const md = new vscode.MarkdownString(undefined, true);
   md.appendMarkdown(`$(${m.icon.replace('~spin', '')}) **${s.project}** — ${m.label}\n\n`);
   if (s.message) md.appendMarkdown(`> ${s.message}\n\n`);
-  if (s.lastPrompt) md.appendMarkdown(`**Last prompt:** ${s.lastPrompt}\n\n`);
+  if (s.lastPrompt) md.appendMarkdown(`**You:** ${s.lastPrompt}\n\n`);
+  if (s.lastResponse) md.appendMarkdown(`**Claude:** ${s.lastResponse}\n\n`);
   if (s.lastTool && s.status === 'working') md.appendMarkdown(`**Last tool:** ${s.lastTool}\n\n`);
   md.appendMarkdown(`\`${s.cwd}\`${s.branch ? ` on \`${s.branch}\`` : ''}\n\n`);
   md.appendMarkdown(`${HOST_LABEL[s.host]}${s.tty && s.tty !== '??' ? ` (${s.tty})` : ''} · pid ${s.pid ?? '?'}`);
@@ -210,7 +221,8 @@ function activate(context) {
           .showWarningMessage(`Claude needs input in ${s.project}${s.message ? `: ${s.message}` : ''}`, 'Focus')
           .then((pick) => pick && focusSession(s));
       } else if (s.status === 'done' && before === 'working' && config().get('notifyOnDone', false)) {
-        vscode.window.showInformationMessage(`Claude finished in ${s.project}`, 'Focus').then((pick) => pick && focusSession(s));
+        const reply = s.lastResponse ? `: ${truncate(s.lastResponse, 160)}` : '';
+        vscode.window.showInformationMessage(`Claude finished in ${s.project}${reply}`, 'Focus').then((pick) => pick && focusSession(s));
       }
     }
   }

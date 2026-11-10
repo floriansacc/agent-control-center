@@ -90,6 +90,16 @@ printf '%s' "$input" | "$JQ" -c \
   --arg itermSessionId "${ITERM_SESSION_ID:-}" \
   --arg entrypoint "${CLAUDE_CODE_ENTRYPOINT:-}" \
   --arg projectDir "${CLAUDE_PROJECT_DIR:-}" '
+  # Markdown reply -> one plain line: drops fences, heading / list / quote markers, link targets,
+  # bold and code marks. Underscores are kept (identifiers such as last_prompt).
+  def plain:
+    gsub("```[^\n]*\n"; "")
+    | gsub("(^|\n)[ \t]*(#{1,6}|[-*+>]|[0-9]+\\.)[ \t]+"; "\n")
+    | gsub("\\[(?<t>[^\\]]*)\\]\\([^)]*\\)"; "\(.t)")
+    | gsub("\\*\\*|`"; "")
+    | gsub("\\s+"; " ")
+    | gsub("^ +| +$"; "");
+  def text: if type == "string" then . elif . == null then "" else tostring end;
   ($now | tonumber) as $t
   | $prev + {
       session_id: .session_id,
@@ -106,8 +116,18 @@ printf '%s' "$input" | "$JQ" -c \
       term_program: $termProgram,
       iterm_session_id: $itermSessionId,
       entrypoint: $entrypoint,
-      message: (if $status == "waiting" then (.message // "Waiting for permission") else null end)
+      message: (
+        if $status == "waiting" then (.message // "Waiting for permission")
+        elif $status == "error" then ((.error_details // .error) | text | plain | .[0:300] | select(. != "") // null)
+        else null end)
     }
+  # What Claude answered at the end of the turn. Only the main agent: SubagentStop carries the
+  # subagent'"'"'s own reply. A new prompt clears it so it never describes an older turn.
+  + (if $event == "Stop" or $event == "StopFailure" then
+       ((.last_assistant_message | text | plain) as $r
+        | if $r != "" then { last_response: $r[0:300] } else { last_response: null } end)
+     elif $event == "UserPromptSubmit" then { last_response: null }
+     else {} end)
   # The VS Code extension prepends context such as <ide_opened_file>…</ide_opened_file> and
   # <ide_selection>…</ide_selection> to every prompt; keep only what the user typed.
   # Whitespace is collapsed first so "." also spans what were newlines.
