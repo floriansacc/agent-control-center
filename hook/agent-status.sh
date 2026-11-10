@@ -108,7 +108,14 @@ printf '%s' "$input" | "$JQ" -c \
       entrypoint: $entrypoint,
       message: (if $status == "waiting" then (.message // "Waiting for permission") else null end)
     }
-  + (if (.prompt | type) == "string" then { last_prompt: (.prompt | gsub("\\s+"; " ") | .[0:200]) } else {} end)
+  # The VS Code extension prepends context such as <ide_opened_file>…</ide_opened_file> and
+  # <ide_selection>…</ide_selection> to every prompt; keep only what the user typed.
+  # Whitespace is collapsed first so "." also spans what were newlines.
+  + ((if (.prompt | type) == "string" then .prompt else "" end)
+      | gsub("\\s+"; " ")
+      | gsub("<(ide_[a-z_]+)>.*?</\\1>"; "")
+      | gsub("^ +| +$"; "")) as $prompt
+  | (if $prompt != "" then { last_prompt: $prompt[0:200] } else {} end)
   + (if $event == "PreToolUse" then { last_tool: .tool_name } else {} end)
 ' > "$tmp" 2>/dev/null && mv -f "$tmp" "$file"
 rm -f "$tmp" 2>/dev/null

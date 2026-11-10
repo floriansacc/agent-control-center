@@ -1,5 +1,4 @@
-// CoreServices, not AppKit: linking AppKit adds ~100ms to every agentctl launch.
-import CoreServices
+// Foundation only, not AppKit: linking AppKit adds ~100ms to every agentctl launch.
 import Foundation
 
 public enum FocusResult: String, Sendable {
@@ -74,21 +73,22 @@ public enum Focus {
         try? data.write(to: Paths.focusRequest, options: .atomic)
     }
 
-    /// Opens a folder in VS Code; when a window already has it open, that window is focused instead.
+    /// Opens a folder (or .code-workspace) in VS Code; when a window already has it open, that window is
+    /// focused instead.
+    ///
+    /// Uses LaunchServices (`open -b`), which hands the path to the running VS Code. The `code` CLI is
+    /// avoided on purpose: it starts the VS Code binary itself, which macOS shows as a second VS Code
+    /// launching (Dock icon / blank window flash) before it forwards to the running instance and exits.
     @discardableResult
-    public static func openInVSCode(_ folder: String) -> Bool {
-        guard !folder.isEmpty else { return false }
-        let appURL = (LSCopyApplicationURLsForBundleIdentifier("com.microsoft.VSCode" as CFString, nil)?
-            .takeRetainedValue() as? [URL])?.first
-            ?? URL(fileURLWithPath: "/Applications/Visual Studio Code.app")
-        let cli = appURL.appendingPathComponent("Contents/Resources/app/bin/code").path
-        if FileManager.default.isExecutableFile(atPath: cli) {
-            // When called from inside VS Code (extension host / integrated terminal), inherited VSCODE_* and
-            // ELECTRON_* variables would route the CLI to the calling window instead of the folder's window.
-            let env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("VSCODE_") && !$0.key.hasPrefix("ELECTRON_") }
-            if Shell.run(cli, [folder], timeout: 10, environment: env).ok { return true }
-        }
-        return Shell.run("/usr/bin/open", ["-b", "com.microsoft.VSCode", folder]).ok
+    public static func openInVSCode(_ path: String) -> Bool {
+        guard !path.isEmpty else { return false }
+        if Shell.run("/usr/bin/open", ["-b", "com.microsoft.VSCode", path]).ok { return true }
+        // Fallback for an unregistered VS Code install: the CLI. Inherited VSCODE_* / ELECTRON_* variables
+        // (when called from inside VS Code) would route it to the calling window, so drop them.
+        let cli = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+        guard FileManager.default.isExecutableFile(atPath: cli) else { return false }
+        let env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("VSCODE_") && !$0.key.hasPrefix("ELECTRON_") }
+        return Shell.run(cli, [path], timeout: 10, environment: env).ok
     }
 
     public static func openPort(_ port: Int) {

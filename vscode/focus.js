@@ -5,7 +5,6 @@
 // Anything outside this window is delegated to agentctl.
 
 const fs = require('fs/promises');
-const path = require('path');
 const { execFile } = require('child_process');
 const vscode = require('vscode');
 const { ancestors, focusExternal, FOCUS_REQUEST } = require('./core');
@@ -56,12 +55,9 @@ async function focusInThisWindow(s) {
  * @param {string} folder
  */
 function openFolderWindow(folder) {
-  const cli = path.join(vscode.env.appRoot, 'bin', 'code');
-  // Inherited VSCODE_* / ELECTRON_* variables would route the CLI back to this window.
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([k]) => !k.startsWith('VSCODE_') && !k.startsWith('ELECTRON_')),
-  );
-  execFile(cli, [folder], { env }, (err) => {
+  // LaunchServices hands the folder to the running VS Code (focusing the window that has it open).
+  // The `code` CLI would start a second VS Code process first, which flashes on screen.
+  execFile('/usr/bin/open', ['-b', 'com.microsoft.VSCode', folder], (err) => {
     if (err) vscode.window.showErrorMessage(`Could not open ${folder}: ${err.message}`);
   });
 }
