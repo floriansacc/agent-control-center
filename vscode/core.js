@@ -6,6 +6,7 @@
 
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 const { execFile } = require('child_process');
 
 const AGENTCTL = path.join(__dirname, 'bin', 'agentctl');
@@ -32,10 +33,21 @@ const FOCUS_REQUEST = path.join(STATUS_DIR, '.focus-request');
  */
 function agentctl(args, timeout = 15_000) {
   return new Promise((resolve) => {
-    execFile(AGENTCTL, args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const code = err ? (typeof err.code === 'number' ? err.code : -1) : 0;
-      resolve({ code, stdout: String(stdout), stderr: String(stderr || (err && !stdout ? err.message : '')) });
-    });
+    const run = (/** @type {boolean} */ retry) =>
+      execFile(AGENTCTL, args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+        // Reinstalling the extension re-extracts the VSIX over this folder, which drops the executable bit.
+        if (retry && err && /** @type {NodeJS.ErrnoException} */ (err).code === 'EACCES') {
+          try {
+            fs.chmodSync(AGENTCTL, 0o755);
+            return run(false);
+          } catch {
+            // Fall through and report the original error.
+          }
+        }
+        const code = err ? (typeof err.code === 'number' ? err.code : -1) : 0;
+        resolve({ code, stdout: String(stdout), stderr: String(stderr || (err && !stdout ? err.message : '')) });
+      });
+    run(true);
   });
 }
 

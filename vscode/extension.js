@@ -184,8 +184,8 @@ function activate(context) {
   let lastStatuses;
   let inflight = false;
   let queued = false;
-  /** Show the "agentctl missing" error once, not every 3s. */
-  let reportedFailure = false;
+  /** Consecutive failed scans. A reinstall makes a few fail while the folder is being replaced. */
+  let failures = 0;
 
   /** @param {Snapshot} snap */
   function updateStatusBar(snap) {
@@ -244,12 +244,17 @@ function activate(context) {
       portsTree.update(snap);
       updateStatusBar(snap);
       notifyTransitions(snap);
-      reportedFailure = false;
+      failures = 0;
     } catch (err) {
       console.error('[agent-control-center] refresh failed', err);
-      if (!reportedFailure) {
-        reportedFailure = true;
-        vscode.window.showErrorMessage(`Agent Control Center: cannot run ${AGENTCTL}. Re-run install.sh.`);
+      // Report once, and only when it persists.
+      if (++failures === 3) {
+        const missing = !fs.existsSync(AGENTCTL);
+        vscode.window.showErrorMessage(
+          missing
+            ? 'Agent Control Center was updated: run "Developer: Reload Window" to load the new version.'
+            : `Agent Control Center: cannot run agentctl (${err instanceof Error ? err.message : err}). Re-run install.sh.`,
+        );
       }
     } finally {
       inflight = false;
