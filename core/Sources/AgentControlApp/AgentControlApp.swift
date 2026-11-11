@@ -62,27 +62,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 }
-
-struct MenuBarLabel: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        let sessions = model.snapshot.sessions
-        let waiting = sessions.filter { $0.status == .waiting }.count
-        let working = sessions.filter { $0.status == .working }.count
-        // Most urgent state wins the icon; the number counts sessions in that state.
-        if waiting > 0 {
-            HStack(spacing: 3) {
-                Image(systemName: "bell.badge.fill")
-                Text("\(waiting)")
-            }
-        } else if working > 0 {
-            HStack(spacing: 3) {
-                Image(systemName: "terminal.fill")
-                Text("\(working)")
-            }
-        } else {
-            Image(systemName: "terminal")
-        }
-    }
-}
