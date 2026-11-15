@@ -4,11 +4,11 @@ import SwiftUI
 extension SessionStatus {
     var color: Color {
         switch self {
-        case .waiting: .orange
-        case .error: .red
-        case .working: .blue
-        case .done: .green
-        case .idle, .untracked: .secondary
+        case .waiting: Palette.orange
+        case .error: Palette.red
+        case .working: Palette.blue
+        case .done: Palette.green
+        case .idle, .untracked: Palette.textMeta
         }
     }
 
@@ -93,6 +93,8 @@ struct SessionListView: View {
         .frame(maxHeight: style == .menu ? .infinity : nil, alignment: .top)
         // Animated height changes make the window resize lag behind the content; snap instead.
         .transaction { if style == .menu { $0.animation = nil } }
+        // After the top-pinning frame, so it covers the whole window even while the window catches up.
+        .background { if style == .menu { MenuBackdrop() } }
         .onAppear { model.viewAppeared() }
         .onDisappear { model.viewDisappeared() }
     }
@@ -113,8 +115,8 @@ struct SessionListView: View {
             if style == .menu {
                 Text("Agents").font(.headline)
             }
-            if working > 0 { CountBadge(count: working, label: "working", color: .blue) }
-            if waiting > 0 { CountBadge(count: waiting, label: "need input", color: .orange) }
+            if working > 0 { CountBadge(count: working, label: "working", color: Palette.blue) }
+            if waiting > 0 { CountBadge(count: waiting, label: "need input", color: Palette.orange) }
             Spacer()
             Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.borderless)
@@ -149,9 +151,9 @@ struct SessionListView: View {
         VStack(alignment: .leading, spacing: 2) {
             if model.snapshot.sessions.isEmpty {
                 VStack(spacing: 6) {
-                    Image(systemName: "terminal").font(.title2).foregroundStyle(.secondary)
+                    Image(systemName: "terminal").font(.title2).foregroundStyle(Palette.textMeta)
                     Text("No Claude Code sessions running")
-                    Text("Start `claude` in any terminal or in VS Code.").font(.caption).foregroundStyle(.secondary)
+                    Text("Start `claude` in any terminal or in VS Code.").font(.caption).foregroundStyle(Palette.textMeta)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)
@@ -169,7 +171,7 @@ struct SessionListView: View {
                     }
                     .padding(.top, 4)
                 } label: {
-                    Text("Other ports (\(model.snapshot.otherPorts.count))").font(.caption).foregroundStyle(.secondary)
+                    Text("Other ports (\(model.snapshot.otherPorts.count))").font(.caption).foregroundStyle(Palette.textMeta)
                 }
                 .padding(.horizontal, 8)
             }
@@ -214,7 +216,7 @@ struct SessionRow: View {
                         Label(branch, systemImage: "arrow.triangle.branch")
                             .labelStyle(.titleAndIcon)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Palette.textMeta)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 4)
@@ -225,20 +227,20 @@ struct SessionRow: View {
                         .fixedSize()
                 }
                 if session.status == .waiting, let message = session.message {
-                    Text(message).font(.caption).foregroundStyle(.orange).lineLimit(2)
+                    Text(message).font(.caption).foregroundStyle(Palette.orange).lineLimit(2)
                 }
                 if let summary = session.summary {
-                    Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.tail)
+                    Text(summary).font(.caption).foregroundStyle(Palette.textBody).lineLimit(2).truncationMode(.tail)
                 }
                 HStack(spacing: 4) {
                     Label(session.host.label, systemImage: session.host.symbol)
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Palette.textFaint)
                     ForEach(session.ports.prefix(Self.maxChips)) { listener in
                         PortChip(listener: listener, model: model)
                     }
                     if session.ports.count > Self.maxChips {
-                        Text("+\(session.ports.count - Self.maxChips)").font(.caption2).foregroundStyle(.secondary)
+                        Text("+\(session.ports.count - Self.maxChips)").font(.caption2).foregroundStyle(Palette.textMeta)
                     }
                 }
             }
@@ -288,7 +290,8 @@ private struct PortChip: View {
                 .font(.caption2.monospaced())
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
-                .background(Capsule().fill(Color.blue.opacity(listener.viaCwd == true ? 0.08 : 0.18)))
+                .foregroundStyle(Palette.chipText)
+                .background(Capsule().fill(Palette.chipFill(sameFolder: listener.viaCwd == true)))
         }
         .buttonStyle(.plain)
         .help("\(listener.command) · pid \(listener.pid)\(listener.viaCwd == true ? " · same folder" : "")\nClick to open in browser")
@@ -308,7 +311,7 @@ private struct OtherPortRow: View {
             Text(":\(String(listener.port))").font(.caption.monospaced()).frame(width: 52, alignment: .leading)
             Text(listener.command).font(.caption).lineLimit(1)
             Spacer()
-            Text("pid \(listener.pid)").font(.caption2).foregroundStyle(.tertiary)
+            Text("pid \(listener.pid)").font(.caption2).foregroundStyle(Palette.textFaint)
         }
         .contentShape(Rectangle())
         .onTapGesture { model.openPort(listener) }
