@@ -93,23 +93,16 @@ struct SessionListView: View {
             maxWidth: style == .menu ? Self.menuWidth : .infinity,
             maxHeight: style == .menu ? nil : .infinity
         )
-        .background {
-            if style == .menu {
-                // Measures the content's own height (before the top-pinning frame below stretches it).
-                GeometryReader { geo in
-                    WindowReader { windowFitter.attach($0) }
-                        .onAppear { windowFitter.update(height: geo.size.height) }
-                        .onChange(of: geo.size.height) { _, h in windowFitter.update(height: h) }
-                }
-            }
-        }
-        // While the window catches up after the content shrinks, keep the content pinned to the top:
-        // the window centres it otherwise, which made it jump down and back up (flicker).
-        .frame(maxHeight: style == .menu ? .infinity : nil, alignment: .top)
-        // Animated height changes make the window resize lag behind the content; snap instead.
-        .transaction { if style == .menu { $0.animation = nil } }
-        // After the top-pinning frame, so it covers the whole window even while the window catches up.
+        // Sized to the content during layout; resizes the menu window before the frame is drawn.
+        .background { if style == .menu { MenuSizeTracker(fitter: windowFitter) } }
+        // The menu view has a fixed height (no `maxHeight: .infinity`): SwiftUI then shrinks the window to it
+        // in the same layout pass, before drawing, as it already does when growing. With a flexible height it
+        // left shrinking to MenuWindowFitter, a frame late: the panel was drawn at the bottom of the
+        // still-tall window for one frame (flicker).
         .background { if style == .menu { MenuBackdrop() } }
+        // Animated height changes make the window resize lag behind the content; snap instead.
+        // Last, so it also covers the backdrop: an animated backdrop under snapping content flickered.
+        .transaction { if style == .menu { $0.animation = nil } }
         .onAppear { model.viewAppeared() }
         .onDisappear { model.viewDisappeared() }
     }
@@ -207,35 +200,63 @@ struct SessionListView: View {
             }
             if !sessions.idle.isEmpty {
                 Divider().padding(.vertical, 4)
-                DisclosureGroup(isExpanded: $showIdle) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(sessions.idle) { session in
-                            SessionRow(session: session, model: model)
-                        }
+                FoldingSection(title: "Idle (\(sessions.idle.count))", isExpanded: $showIdle) {
+                    ForEach(sessions.idle) { session in
+                        SessionRow(session: session, model: model)
                     }
-                    .padding(.top, 4)
-                } label: {
-                    Text("Idle (\(sessions.idle.count))").font(.caption).foregroundStyle(Palette.textMeta)
                 }
-                .padding(.horizontal, 8)
                 .help("Sessions idle for more than \(foldIdleLabel). Change it in ⚙.")
             }
             if !model.snapshot.otherPorts.isEmpty {
                 Divider().padding(.vertical, 4)
-                DisclosureGroup(isExpanded: $showOtherPorts) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(model.snapshot.otherPorts) { listener in
-                            OtherPortRow(listener: listener, model: model)
-                        }
+                FoldingSection(title: "Other ports (\(model.snapshot.otherPorts.count))", isExpanded: $showOtherPorts) {
+                    ForEach(model.snapshot.otherPorts) { listener in
+                        OtherPortRow(listener: listener, model: model)
+                            // Lines up with the section title (header padding + chevron + spacing).
+                            .padding(.leading, 26)
+                            .padding(.trailing, 8)
+                            .padding(.vertical, 1)
                     }
-                    .padding(.top, 4)
-                } label: {
-                    Text("Other ports (\(model.snapshot.otherPorts.count))").font(.caption).foregroundStyle(Palette.textMeta)
                 }
-                .padding(.horizontal, 8)
             }
         }
         .padding(8)
+    }
+}
+
+/// A collapsible section whose whole header row toggles it (a DisclosureGroup only reacts to its arrow).
+private struct FoldingSection<Content: View>: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder let content: () -> Content
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: 12)
+                Text(title).font(.caption)
+                Spacer()
+            }
+            .foregroundStyle(Palette.textMeta)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? Color.primary.opacity(0.08) : .clear))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            // No animation: the menu window resizes to the content and must not lag behind it.
+            .onTapGesture { isExpanded.toggle() }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityValue(isExpanded ? "expanded" : "collapsed")
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 2) { content() }
+            }
+        }
     }
 }
 
