@@ -31,6 +31,7 @@ const HOST_LABEL = {
   iterm: 'iTerm',
   'vscode-terminal': 'VS Code terminal',
   'vscode-panel': 'VS Code panel',
+  'claude-desktop': 'Claude app',
   other: 'terminal',
 };
 

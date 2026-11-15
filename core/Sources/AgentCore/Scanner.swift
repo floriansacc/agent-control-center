@@ -66,7 +66,11 @@ public final class Scanner: @unchecked Sendable {
                 lastResponse: Self.nonEmpty(data["last_response"]),
                 lastTool: Self.nonEmpty(data["last_tool"]),
                 message: Self.nonEmpty(data["message"]),
-                host: Self.detectHost(procs, pid: pid, termProgram: data["term_program"] as? String),
+                host: Self.detectHost(
+                    procs, pid: pid,
+                    termProgram: data["term_program"] as? String,
+                    entrypoint: data["entrypoint"] as? String
+                ),
                 tty: proc?.tty ?? Self.nonEmpty(data["tty"]),
                 itermSessionId: Self.nonEmpty(data["iterm_session_id"]),
                 statusFile: url.path,
@@ -87,7 +91,7 @@ public final class Scanner: @unchecked Sendable {
             sessions.append(Session(
                 key: "pid:\(p.pid)", pid: p.pid, cwd: cwd,
                 project: cwd.isEmpty ? "pid \(p.pid)" : Self.projectName(cwd),
-                status: .untracked, host: Self.detectHost(procs, pid: p.pid, termProgram: nil),
+                status: .untracked, host: Self.detectHost(procs, pid: p.pid, termProgram: nil, entrypoint: nil),
                 tty: p.tty, ports: []
             ))
         }
@@ -192,9 +196,13 @@ public final class Scanner: @unchecked Sendable {
 
     // MARK: - Session helpers
 
-    static func detectHost(_ procs: ProcessTable, pid: Int32?, termProgram: String?) -> SessionHost {
+    static func detectHost(_ procs: ProcessTable, pid: Int32?, termProgram: String?, entrypoint: String?) -> SessionHost {
+        if entrypoint == "claude-desktop" { return .claudeDesktop }
         if let pid, let proc = procs[pid] {
             for a in procs.ancestors(of: pid) {
+                // Before the terminals: a terminal launched from the desktop app is not hosted by it, but the
+                // desktop app runs its sessions under /Applications/Claude.app/Contents/Helpers/disclaimer.
+                if a.comm.contains("/Claude.app/Contents/") { return .claudeDesktop }
                 if a.comm.contains("/iTerm.app/") || a.comm.contains("/iTermServer") { return .iterm }
                 if a.comm.contains("/Visual Studio Code") { return proc.tty == "??" ? .vscodePanel : .vscodeTerminal }
             }

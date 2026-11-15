@@ -33,8 +33,16 @@ The JSON emitted by `agentctl snapshot` is the contract with the extension
 ### Focusing a VS Code session from outside VS Code
 
 VS Code tabs can't be selected from another process, so `agentctl focus` raises the window for the
-session's folder (`code <folder>`) and writes `~/.claude/agent-status/.focus-request`. Every VS Code
+session's folder (`open -b com.microsoft.VSCode <folder>`) and writes `~/.claude/agent-status/.focus-request`. Every VS Code
 window's extension watches that file; the one owning the terminal reveals it.
+
+### Claude desktop app (Code tab)
+
+Its sessions run Claude Code too, so the hook reports them (`entrypoint: claude-desktop`). Focusing one
+maps the Claude Code session id to the app's own `local_…` id (from
+`~/Library/Application Support/Claude/claude-code-sessions`), opens
+`claude://code/continue?session=<local id>` and activates the app. Regular chats in the app run no
+local process and are not tracked.
 
 ## Install
 

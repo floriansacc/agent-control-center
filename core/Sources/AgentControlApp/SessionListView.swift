@@ -30,6 +30,7 @@ extension SessionHost {
         case .iterm, .other: "terminal"
         case .vscodeTerminal: "chevron.left.forwardslash.chevron.right"
         case .vscodePanel: "sidebar.right"
+        case .claudeDesktop: "macwindow"
         }
     }
 }

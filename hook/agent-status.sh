@@ -128,12 +128,13 @@ printf '%s' "$input" | "$JQ" -c \
         | if $r != "" then { last_response: $r[0:300] } else { last_response: null } end)
      elif $event == "UserPromptSubmit" then { last_response: null }
      else {} end)
-  # The VS Code extension prepends context such as <ide_opened_file>…</ide_opened_file> and
-  # <ide_selection>…</ide_selection> to every prompt; keep only what the user typed.
+  # Prompts can carry context the user did not type: the VS Code extension prepends
+  # <ide_opened_file>…</ide_opened_file> / <ide_selection>…</ide_selection>, and the desktop app sends
+  # <system-reminder>…</system-reminder> (e.g. when a session moves to it). Keep only what the user typed.
   # Whitespace is collapsed first so "." also spans what were newlines.
   + ((if (.prompt | type) == "string" then .prompt else "" end)
       | gsub("\\s+"; " ")
-      | gsub("<(ide_[a-z_]+)>.*?</\\1>"; "")
+      | gsub("<(ide_[a-z_]+|system-reminder)>.*?</\\1>"; "")
       | gsub("^ +| +$"; "")) as $prompt
   | (if $prompt != "" then { last_prompt: $prompt[0:200] } else {} end)
   + (if $event == "PreToolUse" then { last_tool: .tool_name } else {} end)

@@ -107,6 +107,31 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertEqual(s.summary, "fix the colors")
     }
 
+    func testClaudeDesktopHost() {
+        let procs = ProcessTable.parse("""
+          10 1 ?? /Applications/Claude.app/Contents/MacOS/Claude
+          11 10 ?? /Applications/Claude.app/Contents/Helpers/disclaimer
+          12 11 ?? /Users/me/Library/Application Support/Claude/claude-code/2.1.325/x/claude.app/Contents/MacOS/claude
+          20 1 ?? /Applications/iTerm.app/Contents/MacOS/iTerm2
+          21 20 ttys001 claude
+        """)
+        XCTAssertEqual(Scanner.detectHost(procs, pid: 12, termProgram: nil, entrypoint: nil), .claudeDesktop)
+        XCTAssertEqual(Scanner.detectHost(procs, pid: nil, termProgram: nil, entrypoint: "claude-desktop"), .claudeDesktop)
+        XCTAssertEqual(Scanner.detectHost(procs, pid: 21, termProgram: nil, entrypoint: "cli"), .iterm)
+    }
+
+    func testClaudeDesktopLocalSessionId() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acc-desktop-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let org = dir.appendingPathComponent("account/org")
+        try FileManager.default.createDirectory(at: org, withIntermediateDirectories: true)
+        let record = #"{"sessionId":"local_aaa","cliSessionId":"cli-new","priorCliSessionIds":["cli-old"]}"#
+        try Data(record.utf8).write(to: org.appendingPathComponent("local_aaa.json"))
+        XCTAssertEqual(ClaudeDesktop.localSessionId(forCliSession: "cli-new", in: dir), "local_aaa")
+        XCTAssertEqual(ClaudeDesktop.localSessionId(forCliSession: "cli-old", in: dir), "local_aaa")
+        XCTAssertNil(ClaudeDesktop.localSessionId(forCliSession: "cli-unknown", in: dir))
+    }
+
     func testSplitFields() {
         let (fields, rest) = splitFields("  12   34 ttys001   /a b/c d  ", count: 3)
         XCTAssertEqual(fields, ["12", "34", "ttys001"])

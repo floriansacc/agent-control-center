@@ -33,6 +33,8 @@ public enum SessionHost: String, Codable, Sendable {
     case iterm
     case vscodeTerminal = "vscode-terminal"
     case vscodePanel = "vscode-panel"
+    /// The Code tab of the Claude desktop app.
+    case claudeDesktop = "claude-desktop"
     case other
 
     public var label: String {
@@ -40,6 +42,7 @@ public enum SessionHost: String, Codable, Sendable {
         case .iterm: "iTerm"
         case .vscodeTerminal: "VS Code terminal"
         case .vscodePanel: "VS Code panel"
+        case .claudeDesktop: "Claude app"
         case .other: "terminal"
         }
     }

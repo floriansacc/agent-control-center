@@ -45,9 +45,29 @@ public enum Focus {
             let target = VSCodeWindows.window(for: session, ProcessTable.read())?.openTarget ?? session.cwd
             writeFocusRequest(session)
             return openInVSCode(target) ? .focused : .notFound
+        case .claudeDesktop:
+            return focusClaudeDesktop(session)
         case .other:
             return .notFound
         }
+    }
+
+    static let claudeDesktopBundleId = "com.anthropic.claudefordesktop"
+
+    /// Shows the session in the desktop app's Code tab through its `claude://code/continue` link (it opens
+    /// the session; it does not start a new turn), then brings the app forward.
+    ///
+    /// The link alone navigates without raising the app, and `open -b` does not raise it either; AppleScript
+    /// `activate` does (and needs no Automation permission).
+    static func focusClaudeDesktop(_ session: Session) -> FocusResult {
+        if let sessionId = session.sessionId, let localId = ClaudeDesktop.localSessionId(forCliSession: sessionId),
+           var url = URLComponents(string: "claude://code/continue") {
+            url.queryItems = [URLQueryItem(name: "session", value: localId)]
+            if let link = url.string { _ = Shell.run("/usr/bin/open", [link]) }
+        }
+        let activate = "tell application id \"\(claudeDesktopBundleId)\" to activate"
+        if Shell.run("/usr/bin/osascript", ["-e", activate], timeout: 10).ok { return .focused }
+        return Shell.run("/usr/bin/open", ["-b", claudeDesktopBundleId]).ok ? .focused : .notFound
     }
 
     static func focusIterm(_ session: Session) -> FocusResult {

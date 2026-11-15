@@ -17,7 +17,7 @@ const FOCUS_REQUEST = path.join(STATUS_DIR, '.focus-request');
 /**
  * @typedef {{ port: number, address: string, pid: number, command: string, cwd?: string, viaCwd?: boolean }} Listener
  * @typedef {'working'|'waiting'|'error'|'done'|'idle'|'untracked'} Status
- * @typedef {'iterm'|'vscode-terminal'|'vscode-panel'|'other'} Host
+ * @typedef {'iterm'|'vscode-terminal'|'vscode-panel'|'claude-desktop'|'other'} Host
  * @typedef {{
  *   key: string, sessionId?: string, pid?: number, cwd: string, project: string, branch?: string,
  *   status: Status, statusSince?: number, updatedAt?: number, startedAt?: number,
