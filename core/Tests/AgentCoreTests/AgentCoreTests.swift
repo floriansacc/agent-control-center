@@ -141,6 +141,7 @@ final class AgentCoreTests: XCTestCase {
         let installed = dir.appendingPathComponent("support/agent-status.sh")
         try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("#!/bin/sh\nexit 0\n".utf8).write(to: script)
+        try Data("#!/bin/sh\necho line\n".utf8).write(to: HookSetup.statusLineScript(nextTo: script))
         let original = #"{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/cc-status"}]}]}}"#
         try Data(original.utf8).write(to: settings)
 
@@ -155,6 +156,8 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertEqual(hooks.count, HookSetup.events.count)
         let stopCommands = hooks["Stop"]?.flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] }.compactMap { $0["command"] as? String }
         XCTAssertEqual(stopCommands, ["/x/cc-status", "\"\(installed.path)\""])
+        let statusLine = try XCTUnwrap(json["statusLine"] as? [String: Any])
+        XCTAssertEqual(statusLine["command"] as? String, "\"\(HookSetup.statusLineScript(nextTo: installed).path)\"")
 
         // Running it again changes nothing and makes no second backup.
         try HookSetup.install(bundledScript: script, settingsURL: settings, installedScript: installed)
@@ -180,6 +183,67 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertEqual(s.activity, "figma get_screenshot")
         s.status = .done
         XCTAssertNil(s.activity)
+    }
+
+    func testHookSetupKeepsAnExistingStatusLine() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acc-sl-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("bundle"), withIntermediateDirectories: true)
+        let settings = dir.appendingPathComponent("settings.json")
+        let script = dir.appendingPathComponent("bundle/agent-status.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: script)
+        try Data("#!/bin/sh\n".utf8).write(to: HookSetup.statusLineScript(nextTo: script))
+        try Data(#"{"statusLine":{"type":"command","command":"mine.sh"}}"#.utf8).write(to: settings)
+        try HookSetup.install(bundledScript: script, settingsURL: settings, installedScript: dir.appendingPathComponent("support/agent-status.sh"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as? [String: Any])
+        XCTAssertEqual((json["statusLine"] as? [String: Any])?["command"] as? String, "mine.sh")
+    }
+
+    func testParseGitStatus() {
+        let out = [
+            "# branch.oid abc", "# branch.head main", "# branch.upstream origin/main", "# branch.ab +2 -1",
+            "1 M. N... 100644 100644 100644 h1 h2 Sources/staged only.swift",
+            "1 .M N... 100644 100644 100644 h1 h2 README.md",
+            "1 MM N... 100644 100644 100644 h1 h2 both.txt",
+            "2 R. N... 100644 100644 100644 h1 h2 R100 new name.txt", "old name.txt",
+            "u UU N... 100644 100644 100644 100644 h1 h2 h3 conflict.txt",
+            "? untracked dir/file.txt",
+            "! ignored.log",
+        ].joined(separator: "\0") + "\0"
+        let info = Scanner.parseGitStatus(out)
+        XCTAssertEqual(info.branch, "main")
+        XCTAssertEqual(info.status?.ahead, 2)
+        XCTAssertEqual(info.status?.behind, 1)
+        XCTAssertEqual(info.status?.staged, ["Sources/staged only.swift", "both.txt", "new name.txt"])
+        XCTAssertEqual(info.status?.changed, ["README.md", "both.txt", "conflict.txt", "untracked dir/file.txt"])
+        XCTAssertEqual(Scanner.parseGitStatus("# branch.head (detached)\0").branch, nil)
+    }
+
+    func testModelNamesAndContext() {
+        XCTAssertEqual(Session.modelDisplayName("claude-opus-5-5"), "Opus 5.5")
+        XCTAssertEqual(Session.modelDisplayName("claude-sonnet-4-5-20250929[1m]"), "Sonnet 4.5")
+        XCTAssertEqual(Session.modelDisplayName("claude-fable-5"), "Fable 5")
+        XCTAssertEqual(Session.modelDisplayName("gpt-x"), "gpt-x")
+
+        // A size reported by one session's status line applies to other sessions on the same model.
+        var sessions = [
+            Session(key: "a", sessionId: "a", cwd: "/a", project: "a", status: .idle, host: .iterm, ports: [], model: "Opus 5.5", contextTokens: 50000),
+            Session(key: "b", sessionId: "b", cwd: "/b", project: "b", status: .idle, host: .vscodePanel, ports: [], model: "Opus 5.5", contextTokens: 100_000),
+            Session(key: "c", sessionId: "c", cwd: "/c", project: "c", status: .idle, host: .vscodePanel, ports: [], model: "Opus 5.5", contextTokens: 300_000),
+        ]
+        let lines: [String: [String: Any]] = ["a": ["model": "Opus 5.5", "effort": "high", "context_tokens": 60000, "context_size": 200_000]]
+        Scanner.applyContext(&sessions, statusLines: lines)
+        XCTAssertEqual(sessions[0].contextTokens, 60000)
+        XCTAssertEqual(sessions[0].effort, "high")
+        XCTAssertEqual(sessions[1].contextPercent, 50)
+        XCTAssertNil(sessions[2].contextSize, "more tokens than the known size: a bigger window, size unknown")
+
+        let limits = Scanner.rateLimits(from: ["a": [
+            "updated_at": 100.0,
+            "rate_limits": ["five_hour": ["used_percentage": 34, "resets_at": 50], "seven_day": ["used_percentage": 61, "resets_at": 999]],
+        ]], now: 100)
+        XCTAssertNil(limits?.fiveHour, "a window that already reset is dropped")
+        XCTAssertEqual(limits?.sevenDay?.usedPercent, 61)
     }
 
     func testSplitFields() {

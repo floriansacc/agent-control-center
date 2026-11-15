@@ -60,6 +60,46 @@ public struct Listener: Codable, Sendable, Hashable, Identifiable {
     public var id: String { "\(pid):\(port)" }
 }
 
+/// One plan usage window (Claude subscription limits), as reported to the status line.
+public struct UsageWindow: Codable, Sendable, Hashable {
+    /// 0–100.
+    public var usedPercent: Double
+    /// Unix seconds.
+    public var resetsAt: Double?
+}
+
+public struct RateLimits: Codable, Sendable, Hashable {
+    public var fiveHour: UsageWindow?
+    public var sevenDay: UsageWindow?
+    /// Unix seconds: when a status line last reported them.
+    public var updatedAt: Double
+}
+
+/// Working tree state, grouped like VS Code's Source Control view.
+public struct GitStatus: Codable, Sendable, Hashable {
+    /// Commits ahead of / behind the upstream branch; nil without an upstream.
+    public var ahead: Int?
+    public var behind: Int?
+    /// In the index (ready to commit).
+    public var stagedCount: Int
+    /// Modified, deleted, untracked or conflicted in the working tree (not staged).
+    public var changedCount: Int
+    /// The first paths of each group, for tooltips.
+    public var staged: [String]
+    public var changed: [String]
+
+    public init(ahead: Int? = nil, behind: Int? = nil, stagedCount: Int = 0, changedCount: Int = 0, staged: [String] = [], changed: [String] = []) {
+        self.ahead = ahead
+        self.behind = behind
+        self.stagedCount = stagedCount
+        self.changedCount = changedCount
+        self.staged = staged
+        self.changed = changed
+    }
+
+    public var isClean: Bool { stagedCount == 0 && changedCount == 0 }
+}
+
 public struct Session: Codable, Sendable, Identifiable {
     public var key: String
     public var sessionId: String?
@@ -84,8 +124,33 @@ public struct Session: Codable, Sendable, Identifiable {
     public var itermSessionId: String?
     public var statusFile: String?
     public var ports: [Listener]
+    /// Model display name, e.g. "Opus 5.5".
+    public var model: String?
+    /// Reasoning effort ("low" … "max"), known when a status line reports it.
+    public var effort: String?
+    /// Tokens in the context window (cache reads and writes included).
+    public var contextTokens: Int?
+    /// Context window size; known from a status line (this session's, or another one on the same model).
+    public var contextSize: Int?
+    public var git: GitStatus?
 
     public var id: String { key }
+
+    /// 0–100, when the window size is known.
+    public var contextPercent: Double? {
+        guard let tokens = contextTokens, let size = contextSize, size > 0 else { return nil }
+        return min(100, Double(tokens) * 100 / Double(size))
+    }
+
+    /// "claude-opus-5-5" → "Opus 5.5", "claude-sonnet-4-5-20250929[1m]" → "Sonnet 4.5". Unknown ids pass through.
+    public static func modelDisplayName(_ id: String) -> String {
+        let base = id.components(separatedBy: "[").first ?? id
+        let parts = base.split(separator: "-").map(String.init)
+        guard parts.count >= 3, parts[0] == "claude", let major = Int(parts[2]) else { return id }
+        let family = parts[1].prefix(1).uppercased() + parts[1].dropFirst()
+        if parts.count >= 4, parts[3].count <= 2, let minor = Int(parts[3]) { return "\(family) \(major).\(minor)" }
+        return "\(family) \(major)"
+    }
 
     /// The line describing the session: what Claude is working on while a turn runs, what it answered once
     /// the turn is over.
@@ -126,6 +191,10 @@ public struct Snapshot: Codable, Sendable {
     public var scannedAt: Double
     /// Lets the VS Code extension skip its own notifications when the menu bar app already sends them.
     public var menuBarAppRunning: Bool
+    /// Plan usage limits from the most recent status line; nil when none has reported them.
+    public var rateLimits: RateLimits?
+    /// Whether this scan ran `git status` (the app skips it between scans while no list is visible).
+    public var gitScanned: Bool = false
 
     public static let empty = Snapshot(sessions: [], otherPorts: [], portsScanned: false, scannedAt: 0, menuBarAppRunning: false)
 }
@@ -137,6 +206,9 @@ public enum Paths {
         }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/agent-status")
     }
+
+    /// Written by agent-statusline.sh: one file per session with model, effort, context and plan limits.
+    public static var statusLineDir: URL { statusDir.appendingPathComponent(".statusline") }
 
     /// Written by `Focus` to ask the VS Code window that owns a session to reveal its terminal / Claude tab.
     /// Dot-prefixed and without .json so the scanner never mistakes it for a session.

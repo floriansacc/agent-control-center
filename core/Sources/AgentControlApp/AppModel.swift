@@ -13,6 +13,8 @@ final class AppModel: ObservableObject {
     private static let interval: TimeInterval = 3
     /// lsof is the expensive part: run it every scan only while a list is on screen.
     private static let backgroundPortInterval: TimeInterval = 30
+    /// git status runs once per project per scan (30–100 ms each): at most this often.
+    private static let gitInterval: TimeInterval = 10
 
     @Published private(set) var snapshot = Snapshot.empty
     @Published private(set) var panelVisible = false
@@ -42,6 +44,7 @@ final class AppModel: ObservableObject {
     private var rescanQueued = false
     private var visibleViews = 0
     private var lastPortScan = Date.distantPast
+    private var lastGitScan = Date.distantPast
     /// nil until the first scan, so launching the app does not notify about existing sessions.
     private var lastStatuses: [String: SessionStatus]?
     private lazy var panel: FloatingPanel = {
@@ -133,9 +136,11 @@ final class AppModel: ObservableObject {
             return
         }
         scanning = true
+        // lsof is the costly part: every scan while a list is on screen, else every 30 s.
         let includePorts = visibleViews > 0 || Date().timeIntervalSince(lastPortScan) > Self.backgroundPortInterval
+        let includeGit = Date().timeIntervalSince(lastGitScan) >= Self.gitInterval
         Task.detached(priority: .utility) {
-            let snap = Scanner.shared.snapshot(ScanOptions(includePorts: includePorts))
+            let snap = Scanner.shared.snapshot(ScanOptions(includePorts: includePorts, includeGit: includeGit))
             await MainActor.run { AppModel.shared.apply(snap) }
         }
     }
@@ -149,6 +154,12 @@ final class AppModel: ObservableObject {
             let previous = Dictionary(snapshot.sessions.map { ($0.key, $0.ports) }, uniquingKeysWith: { a, _ in a })
             for i in snap.sessions.indices { snap.sessions[i].ports = previous[snap.sessions[i].key] ?? [] }
             snap.otherPorts = snapshot.otherPorts
+        }
+        if snap.gitScanned {
+            lastGitScan = Date()
+        } else {
+            let previous = Dictionary(snapshot.sessions.map { ($0.key, $0.git) }, uniquingKeysWith: { a, _ in a })
+            for i in snap.sessions.indices { snap.sessions[i].git = previous[snap.sessions[i].key] ?? nil }
         }
         notifyTransitions(snap)
         snapshot = snap

@@ -13,13 +13,15 @@ set -eu
 ROOT=$(cd "$(dirname "$0")" && pwd)
 HOOK="$ROOT/hook/agent-status.sh"
 CMD="\"$HOOK\""
+STATUSLINE="$ROOT/hook/agent-statusline.sh"
+STATUSLINE_CMD="\"$STATUSLINE\""
 SETTINGS="$HOME/.claude/settings.json"
 EVENTS="SessionStart SessionEnd UserPromptSubmit PreToolUse PostToolUse Notification PermissionRequest Stop StopFailure SubagentStop"
 EXT_ID="local.agent-control-center"
 VSIX="$ROOT/dist/agent-control-center.vsix"
 APP="$HOME/Applications/Agent Control Center.app"
 APP_EXE="AgentControlApp"
-VERSION="0.4.0"
+VERSION="0.5.0"
 CLI="$HOME/.local/bin/agentctl"
 BUNDLE_ID="local.agent-control-center"
 CODE=$(command -v code || echo "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code")
@@ -38,7 +40,7 @@ IFS='
 update_settings() {
   [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
   tmp="$SETTINGS.tmp.$$"
-  jq --arg cmd "$CMD" --arg events "$EVENTS" "$1" "$SETTINGS" > "$tmp"
+  jq --arg cmd "$CMD" --arg events "$EVENTS" --arg statusline "$STATUSLINE_CMD" "$1" "$SETTINGS" > "$tmp"
   if cmp -s "$tmp" "$SETTINGS"; then
     rm -f "$tmp"
     return
@@ -55,12 +57,19 @@ build_core() {
 
 install_hook() {
   echo "→ Registering hook in $SETTINGS"
-  chmod +x "$HOOK"
+  chmod +x "$HOOK" "$STATUSLINE"
+  # The status line (model, effort, context, plan usage) is added only when none is set: an existing
+  # one is never replaced.
   update_settings '
     reduce ($events | split(" "))[] as $e (.;
       .hooks[$e] = ((.hooks[$e] // [])
         | if any(.[]; any(.hooks[]?; .command == $cmd)) then .
-          else . + [{ hooks: [{ type: "command", command: $cmd, timeout: 5 }] }] end))'
+          else . + [{ hooks: [{ type: "command", command: $cmd, timeout: 5 }] }] end))
+    | if .statusLine == null then .statusLine = { type: "command", command: $statusline } else . end'
+  if [ "$(jq -r '.statusLine.command // ""' "$SETTINGS")" != "$STATUSLINE_CMD" ]; then
+    echo "  A status line is already set; kept it. Context %, effort and plan usage need ours:"
+    echo "  set statusLine.command to $STATUSLINE_CMD in $SETTINGS"
+  fi
 }
 
 install_vscode() {
@@ -98,6 +107,7 @@ bundle_app() {
   cp "$BIN_DIR/$APP_EXE" "$dest/Contents/MacOS/$APP_EXE"
   cp "$ROOT/assets/icon/AppIcon.icns" "$dest/Contents/Resources/AppIcon.icns"
   cp "$HOOK" "$dest/Contents/Resources/agent-status.sh"
+  cp "$STATUSLINE" "$dest/Contents/Resources/agent-statusline.sh"
   cat > "$dest/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -151,7 +161,8 @@ install_app() {
 if [ "${1:-}" = "--uninstall" ]; then
   update_settings '
     .hooks |= (with_entries(.value |= (map(.hooks |= map(select(.command != $cmd))) | map(select(.hooks | length > 0))))
-               | with_entries(select(.value | length > 0)))'
+               | with_entries(select(.value | length > 0)))
+    | if .statusLine.command == $statusline then del(.statusLine) else . end'
   "$CODE" --uninstall-extension "$EXT_ID" || true
   for profile in $(profiles); do
     "$CODE" --uninstall-extension "$EXT_ID" --profile "$profile" || true

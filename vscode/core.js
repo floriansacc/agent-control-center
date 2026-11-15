@@ -16,15 +16,22 @@ const FOCUS_REQUEST = path.join(STATUS_DIR, '.focus-request');
 // Mirrors core/Sources/AgentCore/Models.swift — keep in sync.
 /**
  * @typedef {{ port: number, address: string, pid: number, command: string, cwd?: string, viaCwd?: boolean }} Listener
+ * @typedef {{ usedPercent: number, resetsAt?: number }} UsageWindow
+ * @typedef {{ fiveHour?: UsageWindow, sevenDay?: UsageWindow, updatedAt: number }} RateLimits
+ * @typedef {{ ahead?: number, behind?: number, stagedCount: number, changedCount: number, staged: string[], changed: string[] }} GitStatus
  * @typedef {'working'|'waiting'|'error'|'done'|'idle'|'untracked'} Status
  * @typedef {'iterm'|'vscode-terminal'|'vscode-panel'|'claude-desktop'|'other'} Host
  * @typedef {{
  *   key: string, sessionId?: string, pid?: number, cwd: string, project: string, branch?: string,
  *   status: Status, statusSince?: number, updatedAt?: number, startedAt?: number,
  *   lastPrompt?: string, lastResponse?: string, lastTool?: string, toolDetail?: string, message?: string,
- *   host: Host, tty?: string, itermSessionId?: string, statusFile?: string, ports: Listener[]
+ *   host: Host, tty?: string, itermSessionId?: string, statusFile?: string, ports: Listener[],
+ *   model?: string, effort?: string, contextTokens?: number, contextSize?: number, git?: GitStatus
  * }} Session
- * @typedef {{ sessions: Session[], otherPorts: Listener[], portsScanned: boolean, scannedAt: number, menuBarAppRunning: boolean }} Snapshot
+ * @typedef {{
+ *   sessions: Session[], otherPorts: Listener[], portsScanned: boolean, scannedAt: number,
+ *   menuBarAppRunning: boolean, rateLimits?: RateLimits, gitScanned?: boolean
+ * }} Snapshot
  */
 
 /**
@@ -52,12 +59,13 @@ function agentctl(args, timeout = 15_000) {
 }
 
 /**
- * @param {{ includePorts: boolean, ignoredProcesses: string[], hideEphemeralPorts: boolean }} opts
+ * @param {{ includePorts: boolean, includeGit: boolean, ignoredProcesses: string[], hideEphemeralPorts: boolean }} opts
  * @returns {Promise<Snapshot>}
  */
-async function snapshot({ includePorts, ignoredProcesses, hideEphemeralPorts }) {
+async function snapshot({ includePorts, includeGit, ignoredProcesses, hideEphemeralPorts }) {
   const args = ['snapshot', '--ignore', ignoredProcesses.join(',')];
   if (!includePorts) args.push('--no-ports');
+  if (!includeGit) args.push('--no-git');
   if (!hideEphemeralPorts) args.push('--show-ephemeral');
   const res = await agentctl(args);
   if (res.code !== 0) throw new Error(`agentctl snapshot failed (${res.code}): ${res.stderr.trim()}`);

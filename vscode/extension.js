@@ -16,6 +16,8 @@ const { registerWindow } = require('./windows');
  *   | { kind: 'port', port: Listener, parentKey: string }
  *   | { kind: 'summary', session: Session }
  *   | { kind: 'activity', session: Session }
+ *   | { kind: 'context', session: Session }
+ *   | { kind: 'git', session: Session }
  *   | { kind: 'idle', sessions: Session[] }} Node
  */
 
@@ -118,6 +120,53 @@ const isIdleFor = (s, seconds) => {
   return since != null && Date.now() / 1000 - since > seconds;
 };
 
+/** @param {number} n */
+const formatTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${Math.floor(n / 1000)}k` : `${n}`);
+
+/**
+ * Mirrors `Session.contextPercent` in Models.swift.
+ * @param {Session} s
+ */
+const contextPercent = (s) =>
+  s.contextTokens != null && s.contextSize ? Math.min(100, (s.contextTokens * 100) / s.contextSize) : undefined;
+
+/** @param {Session} s */
+function contextText(s) {
+  const parts = [s.model, s.effort].filter(Boolean);
+  const pct = contextPercent(s);
+  if (s.contextTokens != null) {
+    parts.push(
+      pct != null && s.contextSize
+        ? `${Math.round(pct)}% (${formatTokens(s.contextTokens)} / ${formatTokens(s.contextSize)})`
+        : `${formatTokens(s.contextTokens)} tokens`,
+    );
+  }
+  return parts.join(' · ');
+}
+
+/** @param {import('./core').GitStatus} g */
+function gitText(g) {
+  const parts = [];
+  if (g.ahead) parts.push(`↑${g.ahead}`);
+  if (g.behind) parts.push(`↓${g.behind}`);
+  if (g.stagedCount) parts.push(`${g.stagedCount} staged`);
+  if (g.changedCount) parts.push(`${g.changedCount} changed`);
+  return parts.length ? parts.join(' · ') : 'No changes';
+}
+
+/** @param {string} title @param {string[]} paths @param {number} total */
+const fileList = (title, paths, total) =>
+  paths.length ? `**${title}**\n\n${paths.map((p) => `- \`${p}\``).join('\n')}${total > paths.length ? `\n- … and ${total - paths.length} more` : ''}\n\n` : '';
+
+/** @param {import('./core').RateLimits | undefined} limits */
+function planUsageText(limits) {
+  if (!limits) return '';
+  const parts = [];
+  if (limits.fiveHour) parts.push(`5h ${Math.round(limits.fiveHour.usedPercent)}%`);
+  if (limits.sevenDay) parts.push(`week ${Math.round(limits.sevenDay.usedPercent)}%`);
+  return parts.length ? `Plan usage: ${parts.join(' · ')}` : '';
+}
+
 const config = () => vscode.workspace.getConfiguration('agentControl');
 
 /** @implements {vscode.TreeDataProvider<Node>} */
@@ -160,6 +209,8 @@ class AgentTree {
     const children = [];
     if (activity(node.session)) children.push({ kind: 'activity', session: node.session });
     if (summary(node.session)) children.push({ kind: 'summary', session: node.session });
+    if (node.session.model || node.session.contextTokens != null) children.push({ kind: 'context', session: node.session });
+    if (node.session.git) children.push({ kind: 'git', session: node.session });
     for (const port of node.session.ports) children.push({ kind: 'port', port, parentKey: node.session.key });
     return children;
   }
@@ -172,6 +223,33 @@ class AgentTree {
       item.id = 'idle-group';
       item.iconPath = new vscode.ThemeIcon('history');
       item.tooltip = 'Sessions idle for longer than agentControl.foldIdleAfterMinutes.';
+      return item;
+    }
+    if (node.kind === 'context') {
+      const s = node.session;
+      const item = new vscode.TreeItem(contextText(s));
+      item.id = `${s.key}/context`;
+      const pct = contextPercent(s);
+      const color = pct == null ? undefined : pct >= 85 ? 'charts.red' : pct >= 60 ? 'charts.orange' : 'charts.green';
+      item.iconPath = new vscode.ThemeIcon('dashboard', color ? new vscode.ThemeColor(color) : undefined);
+      item.tooltip =
+        s.contextTokens == null
+          ? 'Model'
+          : s.contextSize
+            ? `Context: ${s.contextTokens.toLocaleString()} of ${s.contextSize.toLocaleString()} tokens. Claude Code compacts the conversation when it gets full.`
+            : `Context: ${s.contextTokens.toLocaleString()} tokens. The window size shows once a terminal session on this model reports it (status line).`;
+      return item;
+    }
+    if (node.kind === 'git') {
+      const g = /** @type {import('./core').GitStatus} */ (node.session.git);
+      const item = new vscode.TreeItem(gitText(g));
+      item.id = `${node.session.key}/git`;
+      item.iconPath = new vscode.ThemeIcon(
+        'source-control',
+        g.changedCount ? new vscode.ThemeColor('charts.orange') : g.stagedCount ? new vscode.ThemeColor('charts.green') : undefined,
+      );
+      const md = fileList('Staged', g.staged, g.stagedCount) + fileList('Changes', g.changed, g.changedCount);
+      item.tooltip = md ? new vscode.MarkdownString(md) : 'Working tree clean';
       return item;
     }
     if (node.kind === 'activity') {
@@ -214,7 +292,7 @@ class AgentTree {
 /** @param {Session} s */
 function sessionItem(s) {
   const m = meta(s.status);
-  const hasChildren = Boolean(summary(s) || activity(s)) || s.ports.length > 0;
+  const hasChildren = Boolean(summary(s) || activity(s) || s.model || s.git) || s.contextTokens != null || s.ports.length > 0;
   const item = new vscode.TreeItem(
     s.project,
     hasChildren
@@ -236,6 +314,9 @@ function sessionItem(s) {
   if (s.lastResponse) md.appendMarkdown(`**Claude:** ${s.lastResponse}\n\n`);
   const now = activity(s);
   if (now) md.appendMarkdown(`**Now:** ${now}\n\n`);
+  const ctx = contextText(s);
+  if (ctx) md.appendMarkdown(`**Model:** ${ctx}\n\n`);
+  if (s.git) md.appendMarkdown(`**Git:** ${gitText(s.git)}\n\n`);
   md.appendMarkdown(`\`${s.cwd}\`${s.branch ? ` on \`${s.branch}\`` : ''}\n\n`);
   md.appendMarkdown(`${HOST_LABEL[s.host]}${s.tty && s.tty !== '??' ? ` (${s.tty})` : ''} · pid ${s.pid ?? '?'}`);
   if (s.startedAt) md.appendMarkdown(` · started ${ago(s.startedAt)} ago`);
@@ -273,6 +354,11 @@ function activate(context) {
   let queued = false;
   /** Consecutive failed scans. A reinstall makes a few fail while the folder is being replaced. */
   let failures = 0;
+  /** git status runs once per project per scan: at most every 10 s, the last result is kept in between. */
+  const GIT_INTERVAL_MS = 10_000;
+  let lastGitScan = 0;
+  /** @type {Map<string, import('./core').GitStatus | undefined>} */
+  let lastGit = new Map();
 
   /** @param {Snapshot} snap */
   function updateStatusBar(snap) {
@@ -288,7 +374,8 @@ function activate(context) {
     if (working) parts.push(`$(sync~spin) ${working}`);
     if (waiting) parts.push(`$(bell-dot) ${waiting}`);
     statusBar.text = parts.join('  ');
-    statusBar.tooltip = `${total} Claude session(s): ${working} working, ${waiting} need input`;
+    const usage = planUsageText(snap.rateLimits);
+    statusBar.tooltip = `${total} Claude session(s): ${working} working, ${waiting} need input${usage ? `\n${usage}` : ''}`;
     statusBar.backgroundColor = waiting ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
     statusBar.show();
   }
@@ -324,12 +411,22 @@ function activate(context) {
       const snap = await snapshot({
         // lsof is the expensive part; skip it while nobody is looking at the sidebar.
         includePorts: sessionsView.visible || portsView.visible,
+        // git status is per project and only shown in the sessions view.
+        includeGit: sessionsView.visible && Date.now() - lastGitScan >= GIT_INTERVAL_MS,
         ignoredProcesses: config().get('ignoredProcesses', []),
         hideEphemeralPorts: config().get('hideEphemeralPorts', true),
       });
+      if (snap.gitScanned) {
+        lastGitScan = Date.now();
+        lastGit = new Map(snap.sessions.map((s) => [s.key, s.git]));
+      } else {
+        for (const s of snap.sessions) s.git = lastGit.get(s.key);
+      }
       sessionsTree.update(snap);
       portsTree.update(snap);
       updateStatusBar(snap);
+      // Shown above the session list.
+      sessionsView.message = planUsageText(snap.rateLimits) || undefined;
       notifyTransitions(snap);
       failures = 0;
     } catch (err) {

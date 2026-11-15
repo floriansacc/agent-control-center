@@ -7,7 +7,7 @@ import Foundation
 let usage = """
 usage:
   agentctl list                                   human-readable sessions and ports
-  agentctl snapshot [--no-ports] [--ignore a,b] [--show-ephemeral] [--pretty]
+  agentctl snapshot [--no-ports] [--no-git] [--ignore a,b] [--show-ephemeral] [--pretty]
                                                   JSON snapshot (contract with the VS Code extension)
   agentctl focus <pid|session-id>                 bring the session's terminal / window to the front
   agentctl ancestors <pid>                        JSON array: pid and its ancestors, nearest first
@@ -37,6 +37,31 @@ func ago(_ sec: Double?) -> String {
     }
 }
 
+func tokens(_ n: Int) -> String {
+    n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1_000_000) : n >= 1000 ? "\(n / 1000)k" : "\(n)"
+}
+
+func contextLine(_ s: Session) -> String? {
+    var parts = [s.model, s.effort].compactMap { $0 }
+    if let used = s.contextTokens {
+        if let size = s.contextSize, let pct = s.contextPercent {
+            parts.append("context \(Int(pct))% (\(tokens(used)) / \(tokens(size)))")
+        } else {
+            parts.append("context \(tokens(used)) tokens")
+        }
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+}
+
+func gitLine(_ g: GitStatus) -> String {
+    var parts: [String] = []
+    if let ahead = g.ahead, ahead > 0 { parts.append("↑\(ahead)") }
+    if let behind = g.behind, behind > 0 { parts.append("↓\(behind)") }
+    if g.stagedCount > 0 { parts.append("\(g.stagedCount) staged") }
+    if g.changedCount > 0 { parts.append("\(g.changedCount) changed") }
+    return parts.isEmpty ? "clean" : parts.joined(separator: " · ")
+}
+
 var args = Array(CommandLine.arguments.dropFirst())
 guard let command = args.first else { fail(usage) }
 args.removeFirst()
@@ -49,6 +74,7 @@ case "snapshot":
     while i < args.count {
         switch args[i] {
         case "--no-ports": options.includePorts = false
+        case "--no-git": options.includeGit = false
         case "--show-ephemeral": options.hideEphemeralPorts = false
         case "--pretty": pretty = true
         case "--ignore":
@@ -63,12 +89,18 @@ case "snapshot":
 
 case "list":
     let snap = Scanner.shared.snapshot()
+    if let limits = snap.rateLimits {
+        let parts = [limits.fiveHour.map { "5h \(Int($0.usedPercent))%" }, limits.sevenDay.map { "week \(Int($0.usedPercent))%" }]
+        print("Plan usage: " + parts.compactMap { $0 }.joined(separator: " · ") + "\n")
+    }
     if snap.sessions.isEmpty { print("No Claude Code sessions running.") }
     for s in snap.sessions {
         let status = s.statusSince != nil ? "\(s.status.label) \(ago(s.statusSince))" : s.status.label
         let parts = [s.branch, status, s.host.label, s.tty.map { "tty \($0)" }, s.pid.map { "pid \($0)" }].compactMap { $0 }
         print("● \(s.project)  \(parts.joined(separator: " · "))")
         if let activity = s.activity { print("    now: \(activity.prefix(90))") }
+        if let context = contextLine(s) { print("    \(context)") }
+        if let git = s.git { print("    git: \(gitLine(git))") }
         if let prompt = s.lastPrompt { print("    you: \(prompt.prefix(90))") }
         if let response = s.lastResponse { print("    claude: \(response.prefix(90))") }
         for p in s.ports { print("    :\(p.port)  \(p.command) (pid \(p.pid))\(p.viaCwd == true ? " · same folder" : "")") }

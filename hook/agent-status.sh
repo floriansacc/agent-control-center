@@ -12,8 +12,8 @@ JQ=/usr/bin/jq
 
 input=$(cat)
 # \037 (unit separator) is not IFS whitespace, so empty fields are preserved.
-fields=$(printf '%s' "$input" | "$JQ" -r '[.session_id // "", .hook_event_name // "", .notification_type // ""] | join("\u001f")' 2>/dev/null) || exit 0
-IFS="$(printf '\037')" read -r sid event ntype <<EOF
+fields=$(printf '%s' "$input" | "$JQ" -r '[.session_id // "", .hook_event_name // "", .notification_type // "", .transcript_path // ""] | join("\u001f")' 2>/dev/null) || exit 0
+IFS="$(printf '\037')" read -r sid event ntype transcript <<EOF
 $fields
 EOF
 [ -n "$sid" ] || exit 0
@@ -78,9 +78,27 @@ if [ -z "$pid" ]; then
   done
 fi
 
+# Context size and model from the transcript's last main-agent API response (subagents write their own
+# transcripts). Read from its tail only; lines cut by `tail -c` are skipped by `fromjson?`. The exact window
+# size and %, effort and plan limits come from the status line (agent-statusline.sh) where it runs.
+ctx=null
+case "$event" in
+  PreToolUse|Stop|StopFailure|UserPromptSubmit)
+    if [ -n "$transcript" ] && [ -r "$transcript" ]; then
+      ctx=$(tail -c 262144 "$transcript" 2>/dev/null | grep -F '"usage"' | "$JQ" -cR '
+        fromjson? | select(.type == "assistant" and .message.usage != null and .message.model != "<synthetic>")
+        | .message.usage as $u
+        | { model: .message.model,
+            tokens: (($u.input_tokens // 0) + ($u.cache_creation_input_tokens // 0) + ($u.cache_read_input_tokens // 0)) }
+      ' 2>/dev/null | tail -n 1)
+      [ -n "$ctx" ] || ctx=null
+    fi ;;
+esac
+
 tmp="$file.$$.tmp"
 printf '%s' "$input" | "$JQ" -c \
   --argjson prev "$prev" \
+  --argjson ctx "$ctx" \
   --arg status "$status" \
   --arg event "$event" \
   --arg now "$(date +%s)" \
@@ -151,6 +169,7 @@ printf '%s' "$input" | "$JQ" -c \
       | gsub("<(ide_[a-z_]+|system-reminder)>.*?</\\1>"; "")
       | gsub("^ +| +$"; "")) as $prompt
   | (if $prompt != "" then { last_prompt: $prompt[0:200] } else {} end)
+  + (if $ctx != null and $ctx.tokens > 0 then { model_id: $ctx.model, context_tokens: $ctx.tokens } else {} end)
   # The step Claude is on, e.g. Bash "Run the tests" or Edit "Theme.swift". Kept while it waits for a
   # permission (that is what it asks about); cleared when a turn starts or ends.
   + (if $event == "PreToolUse" then

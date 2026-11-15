@@ -11,6 +11,16 @@ Two front-ends, one core:
   as an always-on-top floating panel; native notifications with "Jump to session".
 - **VS Code sidebar**: the same list inside VS Code (activity bar → Agents).
 
+Per session: status, current step, last prompt / reply, model, effort, context use (tokens and % of the
+window), git state (ahead / behind, staged, changed incl. new files, like VS Code's Source Control) and
+ports. Globally: the plan's 5-hour and weekly usage.
+
+Where the data comes from: the hook (`hook/agent-status.sh`) reports status, activity and, from the
+transcript, model and context tokens for every session. The status line (`hook/agent-statusline.sh`,
+registered by `install.sh hook` unless you already have one) adds the exact window size, effort and plan
+usage; Claude Code runs it in terminal sessions only. A window size seen for a model is reused for the
+other sessions on that model.
+
 ## Layout
 
 ```

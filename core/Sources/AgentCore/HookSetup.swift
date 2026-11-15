@@ -53,7 +53,13 @@ public enum HookSetup {
         return false
     }
 
-    /// Copies `bundledScript` to a stable location and registers it for every event.
+    /// The status line script ships next to the hook script.
+    static func statusLineScript(nextTo script: URL) -> URL {
+        script.deletingLastPathComponent().appendingPathComponent("agent-statusline.sh")
+    }
+
+    /// Copies `bundledScript` to a stable location and registers it for every event. The status line
+    /// script next to it is registered too, unless the user already has a status line.
     public static func install(
         bundledScript: URL?,
         settingsURL: URL = settingsURL,
@@ -64,6 +70,10 @@ public enum HookSetup {
             throw SetupError.missingJq
         }
         try copyScript(from: bundledScript, to: installedScript)
+        let bundledStatusLine = statusLineScript(nextTo: bundledScript)
+        let installedStatusLine = statusLineScript(nextTo: installedScript)
+        let hasStatusLine = FileManager.default.fileExists(atPath: bundledStatusLine.path)
+        if hasStatusLine { try copyScript(from: bundledStatusLine, to: installedStatusLine) }
 
         let fm = FileManager.default
         try fm.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -75,9 +85,12 @@ public enum HookSetup {
           .hooks[$e] = ((.hooks[$e] // [])
             | if any(.[]; any(.hooks[]?; .command == $cmd)) then .
               else . + [{ hooks: [{ type: "command", command: $cmd, timeout: 5 }] }] end))
+        | if $statusline != "" and .statusLine == null then .statusLine = { type: "command", command: $statusline } else . end
         """
         let result = Shell.run(jq, [
-            "--arg", "cmd", command, "--arg", "events", events.joined(separator: " "), filter, settingsURL.path,
+            "--arg", "cmd", command, "--arg", "events", events.joined(separator: " "),
+            "--arg", "statusline", hasStatusLine ? "\"\(installedStatusLine.path)\"" : "",
+            filter, settingsURL.path,
         ], timeout: 10)
         guard result.ok, !result.stdout.isEmpty else {
             throw SetupError.failed("Could not update \(settingsURL.path): \(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
@@ -96,11 +109,18 @@ public enum HookSetup {
     /// Keeps the installed copy in step with the app's bundled script after an app update.
     /// Does nothing when the app's copy was never installed (e.g. the hook runs from the repository).
     public static func refreshInstalledScript(from bundledScript: URL?) {
-        guard let bundledScript, FileManager.default.fileExists(atPath: installedScript.path),
-              let new = try? Data(contentsOf: bundledScript),
-              (try? Data(contentsOf: installedScript)) != new
-        else { return }
-        try? copyScript(from: bundledScript, to: installedScript)
+        guard let bundledScript else { return }
+        let pairs = [
+            (bundledScript, installedScript),
+            (statusLineScript(nextTo: bundledScript), statusLineScript(nextTo: installedScript)),
+        ]
+        for (source, target) in pairs {
+            guard FileManager.default.fileExists(atPath: target.path),
+                  let new = try? Data(contentsOf: source),
+                  (try? Data(contentsOf: target)) != new
+            else { continue }
+            try? copyScript(from: source, to: target)
+        }
     }
 
     private static func copyScript(from source: URL, to installedScript: URL) throws {

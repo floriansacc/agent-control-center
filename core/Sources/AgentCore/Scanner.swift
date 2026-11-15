@@ -7,16 +7,24 @@ public struct ScanOptions: Sendable {
     public var ignoredProcesses: [String]
     /// Hide ports >= 49152 from `otherPorts`: almost always app IPC, not dev servers.
     public var hideEphemeralPorts: Bool
+    /// Run `git status` per project (staged / changed files, ahead / behind). Without it, only the branch.
+    public var includeGit: Bool
 
     public static let defaultIgnored = [
         "ControlCenter", "rapportd", "Code Helper", "Electron", "Google Drive", "figma_agent",
         "Notion", "Spotify", "Dropbox", "Slack", "Discord", "Claude", Paths.appExecutableName,
     ]
 
-    public init(includePorts: Bool = true, ignoredProcesses: [String] = ScanOptions.defaultIgnored, hideEphemeralPorts: Bool = true) {
+    public init(
+        includePorts: Bool = true,
+        ignoredProcesses: [String] = ScanOptions.defaultIgnored,
+        hideEphemeralPorts: Bool = true,
+        includeGit: Bool = true
+    ) {
         self.includePorts = includePorts
         self.ignoredProcesses = ignoredProcesses
         self.hideEphemeralPorts = hideEphemeralPorts
+        self.includeGit = includeGit
     }
 }
 
@@ -75,7 +83,9 @@ public final class Scanner: @unchecked Sendable {
                 tty: proc?.tty ?? Self.nonEmpty(data["tty"]),
                 itermSessionId: Self.nonEmpty(data["iterm_session_id"]),
                 statusFile: url.path,
-                ports: []
+                ports: [],
+                model: Self.nonEmpty(data["model_id"]).map(Session.modelDisplayName),
+                contextTokens: (data["context_tokens"] as? NSNumber)?.intValue
             ))
         }
 
@@ -119,8 +129,23 @@ public final class Scanner: @unchecked Sendable {
             }
         }
 
-        for i in sessions.indices where !sessions[i].cwd.isEmpty {
-            sessions[i].branch = gitBranch(sessions[i].cwd)
+        let statusLines = readStatusLines(liveSessionIds: Set(sessions.compactMap(\.sessionId)), now: now)
+        Self.applyContext(&sessions, statusLines: statusLines)
+
+        // One git call per distinct folder, in parallel (30–100 ms each).
+        let dirs = Array(Set(sessions.map(\.cwd).filter { !$0.isEmpty }))
+        var results = [GitInfo?](repeating: nil, count: dirs.count)
+        results.withUnsafeMutableBufferPointer { buffer in
+            let out = buffer
+            DispatchQueue.concurrentPerform(iterations: dirs.count) { i in
+                out[i] = options.includeGit ? gitStatus(dirs[i]) : GitInfo(branch: gitBranch(dirs[i]), status: nil)
+            }
+        }
+        let git = Dictionary(uniqueKeysWithValues: zip(dirs, results))
+        for i in sessions.indices {
+            guard let info = git[sessions[i].cwd] ?? nil else { continue }
+            sessions[i].branch = info.branch
+            sessions[i].git = info.status
         }
 
         sessions.sort {
@@ -132,7 +157,9 @@ public final class Scanner: @unchecked Sendable {
             otherPorts: otherPorts,
             portsScanned: options.includePorts,
             scannedAt: (now * 1000).rounded(),
-            menuBarAppRunning: procs.all.contains { ($0.comm as NSString).lastPathComponent == Paths.appExecutableName }
+            menuBarAppRunning: procs.all.contains { ($0.comm as NSString).lastPathComponent == Paths.appExecutableName },
+            rateLimits: Self.rateLimits(from: statusLines, now: now),
+            gitScanned: options.includeGit
         )
     }
 
@@ -148,6 +175,75 @@ public final class Scanner: @unchecked Sendable {
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
             return (url, obj)
         }
+    }
+
+    // MARK: - Status line data
+
+    /// Files written by agent-statusline.sh, by session id. Stale ones are removed: the session ended, or
+    /// the status line stopped running for it a day ago.
+    private func readStatusLines(liveSessionIds: Set<String>, now: Double) -> [String: [String: Any]] {
+        let dir = Paths.statusLineDir
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return [:] }
+        var result: [String: [String: Any]] = [:]
+        for name in names where name.hasSuffix(".json") {
+            let url = dir.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: url),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let sid = obj["session_id"] as? String
+            else { continue }
+            let age = now - ((obj["updated_at"] as? NSNumber)?.doubleValue ?? 0)
+            if age > 86400 || (!liveSessionIds.contains(sid) && age > 3600) {
+                try? FileManager.default.removeItem(at: url)
+                continue
+            }
+            result[sid] = obj
+        }
+        return result
+    }
+
+    /// Fills model, effort and context from the status line where it runs (exact), keeping the hook's
+    /// transcript-based values otherwise. Window sizes reported for a model also apply to its other sessions.
+    static func applyContext(_ sessions: inout [Session], statusLines: [String: [String: Any]]) {
+        var sizeByModel: [String: Int] = [:]
+        for line in statusLines.values {
+            guard let size = (line["context_size"] as? NSNumber)?.intValue, size > 0 else { continue }
+            if let name = nonEmpty(line["model"]) { sizeByModel[name] = max(sizeByModel[name] ?? 0, size) }
+            if let id = nonEmpty(line["model_id"]) { sizeByModel[Session.modelDisplayName(id)] = max(sizeByModel[Session.modelDisplayName(id)] ?? 0, size) }
+        }
+        for i in sessions.indices {
+            if let sid = sessions[i].sessionId, let line = statusLines[sid] {
+                if let model = nonEmpty(line["model"]) ?? nonEmpty(line["model_id"]).map(Session.modelDisplayName) {
+                    sessions[i].model = model
+                }
+                sessions[i].effort = nonEmpty(line["effort"])
+                if let tokens = (line["context_tokens"] as? NSNumber)?.intValue, tokens > 0 { sessions[i].contextTokens = tokens }
+                if let size = (line["context_size"] as? NSNumber)?.intValue, size > 0 { sessions[i].contextSize = size }
+            }
+            if sessions[i].contextSize == nil, let model = sessions[i].model, let size = sizeByModel[model] {
+                // A transcript count above that size means a larger window than the one seen: leave it unknown.
+                if (sessions[i].contextTokens ?? 0) <= size { sessions[i].contextSize = size }
+            }
+        }
+    }
+
+    /// The freshest plan limits any status line reported, without windows that already reset.
+    static func rateLimits(from statusLines: [String: [String: Any]], now: Double) -> RateLimits? {
+        let newest = statusLines.values
+            .filter { $0["rate_limits"] is [String: Any] }
+            .max { (($0["updated_at"] as? NSNumber)?.doubleValue ?? 0) < (($1["updated_at"] as? NSNumber)?.doubleValue ?? 0) }
+        guard let newest, let limits = newest["rate_limits"] as? [String: Any] else { return nil }
+        func window(_ key: String) -> UsageWindow? {
+            guard let w = limits[key] as? [String: Any], let used = (w["used_percentage"] as? NSNumber)?.doubleValue else { return nil }
+            let resets = (w["resets_at"] as? NSNumber)?.doubleValue
+            if let resets, resets <= now { return nil }
+            return UsageWindow(usedPercent: used, resetsAt: resets)
+        }
+        let result = RateLimits(
+            fiveHour: window("five_hour"),
+            sevenDay: window("seven_day"),
+            updatedAt: (newest["updated_at"] as? NSNumber)?.doubleValue ?? now
+        )
+        return result.fiveHour == nil && result.sevenDay == nil ? nil : result
     }
 
     // MARK: - Ports
@@ -246,6 +342,12 @@ public final class Scanner: @unchecked Sendable {
         return s
     }
 
+    struct GitInfo {
+        var branch: String?
+        var status: GitStatus?
+    }
+
+    /// Branch only (cheap): used when the full status is not wanted.
     private func gitBranch(_ dir: String) -> String? {
         lock.lock()
         if let hit = branchCache[dir], Date().timeIntervalSince(hit.at) < Self.branchTTL {
@@ -261,5 +363,66 @@ public final class Scanner: @unchecked Sendable {
         branchCache[dir] = (Date(), branch)
         lock.unlock()
         return branch
+    }
+
+    /// Branch, ahead / behind, staged and changed files. `--no-optional-locks` keeps it from taking the
+    /// index lock (and racing a commit the agent is making).
+    private func gitStatus(_ dir: String) -> GitInfo? {
+        let res = Shell.run("/usr/bin/git", [
+            "--no-optional-locks", "-C", dir, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all",
+        ], timeout: 3)
+        guard res.ok else { return nil } // not a repository
+        return Self.parseGitStatus(res.stdout)
+    }
+
+    /// Parses `git status --porcelain=v2 --branch -z`. Like VS Code's Source Control: a file can be both
+    /// staged and changed; untracked and conflicted files count as changed.
+    static func parseGitStatus(_ output: String, maxPaths: Int = 30) -> GitInfo {
+        var branch: String?
+        var status = GitStatus()
+        var records = output.split(separator: "\0", omittingEmptySubsequences: true).makeIterator()
+        func add(_ path: Substring, staged: Bool, changed: Bool) {
+            if staged {
+                status.stagedCount += 1
+                if status.staged.count < maxPaths { status.staged.append(String(path)) }
+            }
+            if changed {
+                status.changedCount += 1
+                if status.changed.count < maxPaths { status.changed.append(String(path)) }
+            }
+        }
+        // Fields before the path: "1 XY sub mH mI mW hH hI path", "2 XY sub mH mI mW hH hI Xscore path\0orig",
+        // "u XY sub m1 m2 m3 mW h1 h2 h3 path".
+        func path(_ record: Substring, after fields: Int) -> Substring {
+            record.split(separator: " ", maxSplits: fields, omittingEmptySubsequences: false).last ?? ""
+        }
+        while let record = records.next() {
+            guard let kind = record.first else { continue }
+            switch kind {
+            case "#":
+                if record.hasPrefix("# branch.head ") {
+                    let head = record.dropFirst("# branch.head ".count)
+                    branch = head == "(detached)" ? nil : String(head)
+                } else if record.hasPrefix("# branch.ab ") {
+                    let parts = record.split(separator: " ")
+                    if parts.count >= 4 {
+                        status.ahead = Int(parts[2].dropFirst())
+                        status.behind = Int(parts[3].dropFirst())
+                    }
+                }
+            case "1", "2":
+                let xy = Array(record.dropFirst(2).prefix(2))
+                guard xy.count == 2 else { continue }
+                add(path(record, after: kind == "1" ? 8 : 9), staged: xy[0] != ".", changed: xy[1] != ".")
+                if kind == "2" { _ = records.next() } // the rename's original path
+            case "u":
+                add(path(record, after: 10), staged: false, changed: true)
+            case "?":
+                add(record.dropFirst(2), staged: false, changed: true)
+            default:
+                continue // "!" ignored files
+            }
+        }
+        return GitInfo(branch: branch, status: status)
     }
 }

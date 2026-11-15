@@ -77,6 +77,9 @@ struct SessionListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let limits = model.snapshot.rateLimits {
+                PlanUsageRow(limits: limits)
+            }
             Divider()
             if style == .menu {
                 // Menu windows have no height to fill: size to content, scroll past the cap.
@@ -324,6 +327,18 @@ struct SessionRow: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                }
+                if session.model != nil || session.contextTokens != nil || session.git != nil {
+                    // Set apart from the prompt / reply above: these lines describe the session, not the turn.
+                    VStack(alignment: .leading, spacing: 3) {
+                        if session.model != nil || session.contextTokens != nil {
+                            ContextLine(session: session)
+                        }
+                        if let git = session.git {
+                            GitLine(git: git)
+                        }
+                    }
+                    .padding(.vertical, 4)
                 }
                 HStack(spacing: 4) {
                     Label(session.host.label, systemImage: session.host.symbol)
