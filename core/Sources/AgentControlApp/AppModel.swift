@@ -198,11 +198,11 @@ final class AppModel: ObservableObject {
         for s in snap.sessions {
             guard let before = previous[s.key], before != s.status else { continue }
             if s.status == .waiting, notifyOnWaiting {
-                post(s, title: "\(s.project) needs input", body: s.message ?? "Claude is waiting for you")
+                post(s, title: "\(s.displayName) needs input", body: s.message ?? "Claude is waiting for you")
             } else if s.status == .done, before == .working, notifyOnDone {
-                post(s, title: "\(s.project) finished", body: s.lastResponse ?? s.lastPrompt ?? "Claude finished its turn")
+                post(s, title: "\(s.displayName) finished", body: s.lastResponse ?? s.lastPrompt ?? "Claude finished its turn")
             } else if s.status == .error, notifyOnWaiting {
-                post(s, title: "\(s.project) stopped with an error", body: s.message ?? s.lastResponse ?? s.lastPrompt ?? "")
+                post(s, title: "\(s.displayName) stopped with an error", body: s.message ?? s.lastResponse ?? s.lastPrompt ?? "")
             }
         }
     }
@@ -259,7 +259,7 @@ final class AppModel: ObservableObject {
 
     func stop(_ session: Session) {
         guard let pid = session.pid,
-              confirm("Stop the Claude session in \(session.project)?", "Sends SIGTERM to pid \(pid).", action: "Stop Session")
+              confirm("Stop the Claude session “\(session.displayName)”?", "Sends SIGTERM to pid \(pid).", action: "Stop Session")
         else { return }
         if let error = Focus.terminate(pid: pid) { alert("Could not stop pid \(pid)", error) }
         refresh()

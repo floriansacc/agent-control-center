@@ -85,7 +85,10 @@ public final class Scanner: @unchecked Sendable {
                 statusFile: url.path,
                 ports: [],
                 model: Self.nonEmpty(data["model_id"]).map(Session.modelDisplayName),
-                contextTokens: (data["context_tokens"] as? NSNumber)?.intValue
+                contextTokens: (data["context_tokens"] as? NSNumber)?.intValue,
+                customTitle: Self.nonEmpty(data["custom_title"]),
+                aiTitle: Self.nonEmpty(data["ai_title"]),
+                rootDir: Self.nonEmpty(data["project_dir"])
             ))
         }
 

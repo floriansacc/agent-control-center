@@ -95,10 +95,27 @@ case "$event" in
     fi ;;
 esac
 
+# Session titles: "custom-title" (set with /rename) and "ai-title" (generated), appended to the
+# transcript from time to time. They change rarely: only looked up when a turn starts or ends.
+titles=null
+case "$event" in
+  SessionStart|UserPromptSubmit|Stop)
+    if [ -n "$transcript" ] && [ -r "$transcript" ]; then
+      # Claude Code re-appends the titles regularly: the last 1 MB holds them (and keeps this ~25 ms).
+      titles=$(tail -c 1000000 "$transcript" 2>/dev/null | grep -F -e '"type":"custom-title"' -e '"type":"ai-title"' | "$JQ" -cRn '
+        [inputs | fromjson? | select(.type == "custom-title" or .type == "ai-title")]
+        | { custom: (map(select(.type == "custom-title") | .customTitle) | last),
+            ai: (map(select(.type == "ai-title") | .aiTitle) | last) }
+      ' 2>/dev/null)
+      [ -n "$titles" ] || titles=null
+    fi ;;
+esac
+
 tmp="$file.$$.tmp"
 printf '%s' "$input" | "$JQ" -c \
   --argjson prev "$prev" \
   --argjson ctx "$ctx" \
+  --argjson titles "$titles" \
   --arg status "$status" \
   --arg event "$event" \
   --arg now "$(date +%s)" \
@@ -169,6 +186,10 @@ printf '%s' "$input" | "$JQ" -c \
       | gsub("<(ide_[a-z_]+|system-reminder)>.*?</\\1>"; "")
       | gsub("^ +| +$"; "")) as $prompt
   | (if $prompt != "" then { last_prompt: $prompt[0:200] } else {} end)
+  + (if $titles != null then
+       (if ($titles.custom // "") != "" then { custom_title: $titles.custom } else {} end)
+       + (if ($titles.ai // "") != "" then { ai_title: $titles.ai } else {} end)
+     else {} end)
   + (if $ctx != null and $ctx.tokens > 0 then { model_id: $ctx.model, context_tokens: $ctx.tokens } else {} end)
   # The step Claude is on, e.g. Bash "Run the tests" or Edit "Theme.swift". Kept while it waits for a
   # permission (that is what it asks about); cleared when a turn starts or ends.

@@ -246,6 +246,27 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertEqual(limits?.sevenDay?.usedPercent, 61)
     }
 
+    func testDisplayNamePrefersRenameThenFolderThenTitleForHome() {
+        var s = Session(key: "k", cwd: "/work/app", project: "app", status: .idle, host: .iterm, ports: [])
+        s.aiTitle = "Fix the login bug"
+        XCTAssertEqual(s.displayName, "app", "a project folder names the session")
+        s.customTitle = "Login"
+        XCTAssertEqual(s.displayName, "Login", "/rename wins")
+
+        var home = Session(key: "h", cwd: Scanner.home, project: "me", status: .idle, host: .iterm, ports: [])
+        XCTAssertEqual(home.displayName, "me", "no title yet: the folder")
+        home.aiTitle = "VSCode agent control center"
+        XCTAssertEqual(home.displayName, "VSCode agent control center")
+        XCTAssertEqual(home.folderLabel, "~")
+
+        // Started in home, now working in a project: still the title, with the project as the folder.
+        var moved = Session(key: "m", cwd: "/work/app", project: "app", status: .idle, host: .iterm, ports: [])
+        moved.rootDir = Scanner.home
+        moved.aiTitle = "VSCode agent control center"
+        XCTAssertEqual(moved.displayName, "VSCode agent control center")
+        XCTAssertEqual(moved.folderLabel, "app")
+    }
+
     func testSplitFields() {
         let (fields, rest) = splitFields("  12   34 ttys001   /a b/c d  ", count: 3)
         XCTAssertEqual(fields, ["12", "34", "ttys001"])

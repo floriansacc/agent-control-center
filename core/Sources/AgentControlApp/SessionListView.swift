@@ -294,7 +294,15 @@ struct SessionRow: View {
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(session.project).fontWeight(.semibold).lineLimit(1)
+                    Text(session.displayName).fontWeight(.semibold).lineLimit(1)
+                    if session.displayName != session.project {
+                        Label(session.folderLabel, systemImage: "folder")
+                            .labelStyle(.titleAndIcon)
+                            .font(.caption)
+                            .foregroundStyle(Palette.textMeta)
+                            .lineLimit(1)
+                            .layoutPriority(-1)
+                    }
                     if let branch = session.branch {
                         Label(branch, systemImage: "arrow.triangle.branch")
                             .labelStyle(.titleAndIcon)
@@ -377,6 +385,7 @@ struct SessionRow: View {
 
     private var tooltip: String {
         var lines = [session.cwd]
+        if let title = session.customTitle ?? session.aiTitle, title != session.displayName { lines.append("Title: \(title)") }
         if let tty = session.tty, tty != "??" { lines.append("\(session.host.label) · \(tty)") }
         if let pid = session.pid { lines.append("pid \(pid)") }
         if let prompt = session.lastPrompt { lines.append("You: \(prompt)") }

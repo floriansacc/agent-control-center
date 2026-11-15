@@ -97,7 +97,8 @@ case "list":
     for s in snap.sessions {
         let status = s.statusSince != nil ? "\(s.status.label) \(ago(s.statusSince))" : s.status.label
         let parts = [s.branch, status, s.host.label, s.tty.map { "tty \($0)" }, s.pid.map { "pid \($0)" }].compactMap { $0 }
-        print("● \(s.project)  \(parts.joined(separator: " · "))")
+        let folder = s.displayName == s.project ? "" : "  [\(s.folderLabel)]"
+        print("● \(s.displayName)\(folder)  \(parts.joined(separator: " · "))")
         if let activity = s.activity { print("    now: \(activity.prefix(90))") }
         if let context = contextLine(s) { print("    \(context)") }
         if let git = s.git { print("    git: \(gitLine(git))") }

@@ -167,6 +167,24 @@ function planUsageText(limits) {
   return parts.length ? `Plan usage: ${parts.join(' · ')}` : '';
 }
 
+const HOME = require('os').homedir();
+
+/**
+ * Mirrors `Session.displayName` in Models.swift: /rename title, else the folder; for a session started in
+ * home or /, the generated title.
+ * @param {Session} s
+ */
+const displayName = (s) => {
+  if (s.customTitle) return s.customTitle;
+  // Where the session started: cwd follows the agent's `cd`.
+  const root = s.rootDir ?? s.cwd;
+  const broad = root === '/' || root === '/Users' || root === HOME;
+  return broad && s.aiTitle ? s.aiTitle : s.project;
+};
+
+/** @param {Session} s */
+const folderLabel = (s) => (s.cwd === HOME ? '~' : s.project);
+
 const config = () => vscode.workspace.getConfiguration('agentControl');
 
 /** @implements {vscode.TreeDataProvider<Node>} */
@@ -294,7 +312,7 @@ function sessionItem(s) {
   const m = meta(s.status);
   const hasChildren = Boolean(summary(s) || activity(s) || s.model || s.git) || s.contextTokens != null || s.ports.length > 0;
   const item = new vscode.TreeItem(
-    s.project,
+    displayName(s),
     hasChildren
       ? s.ports.length > 0
         ? vscode.TreeItemCollapsibleState.Expanded
@@ -305,10 +323,13 @@ function sessionItem(s) {
   item.iconPath = new vscode.ThemeIcon(m.icon, m.color ? new vscode.ThemeColor(m.color) : undefined);
   const statusText = s.statusSince ? `${m.label} ${ago(s.statusSince)}` : m.label;
   const ports = s.ports.map((p) => `:${p.port}`).join(' ');
-  item.description = [s.branch, statusText, ports, HOST_LABEL[s.host]].filter(Boolean).join(' · ');
+  const folder = displayName(s) !== s.project ? folderLabel(s) : '';
+  item.description = [folder, s.branch, statusText, ports, HOST_LABEL[s.host]].filter(Boolean).join(' · ');
 
   const md = new vscode.MarkdownString(undefined, true);
-  md.appendMarkdown(`$(${m.icon.replace('~spin', '')}) **${s.project}** — ${m.label}\n\n`);
+  md.appendMarkdown(`$(${m.icon.replace('~spin', '')}) **${displayName(s)}** — ${m.label}\n\n`);
+  const title = s.customTitle ?? s.aiTitle;
+  if (title && title !== displayName(s)) md.appendMarkdown(`_${title}_\n\n`);
   if (s.message) md.appendMarkdown(`> ${s.message}\n\n`);
   if (s.lastPrompt) md.appendMarkdown(`**You:** ${s.lastPrompt}\n\n`);
   if (s.lastResponse) md.appendMarkdown(`**Claude:** ${s.lastResponse}\n\n`);
@@ -392,11 +413,11 @@ function activate(context) {
       if (before == null || before === s.status) continue;
       if (s.status === 'waiting' && config().get('notifyOnWaiting', true)) {
         vscode.window
-          .showWarningMessage(`Claude needs input in ${s.project}${s.message ? `: ${s.message}` : ''}`, 'Focus')
+          .showWarningMessage(`Claude needs input in ${displayName(s)}${s.message ? `: ${s.message}` : ''}`, 'Focus')
           .then((pick) => pick && focusSession(s));
       } else if (s.status === 'done' && before === 'working' && config().get('notifyOnDone', false)) {
         const reply = s.lastResponse ? `: ${truncate(s.lastResponse, 160)}` : '';
-        vscode.window.showInformationMessage(`Claude finished in ${s.project}${reply}`, 'Focus').then((pick) => pick && focusSession(s));
+        vscode.window.showInformationMessage(`Claude finished in ${displayName(s)}${reply}`, 'Focus').then((pick) => pick && focusSession(s));
       }
     }
   }
@@ -505,7 +526,7 @@ function activate(context) {
       onNode(async (/** @type {Node} */ n) => {
         if (n.kind !== 'session' || n.session.pid == null) return;
         const ok = await vscode.window.showWarningMessage(
-          `Stop the Claude session in ${n.session.project} (pid ${n.session.pid})?`,
+          `Stop the Claude session “${displayName(n.session)}” (pid ${n.session.pid})?`,
           { modal: true },
           'Stop',
         );

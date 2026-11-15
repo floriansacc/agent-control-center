@@ -26,7 +26,8 @@ const FOCUS_REQUEST = path.join(STATUS_DIR, '.focus-request');
  *   status: Status, statusSince?: number, updatedAt?: number, startedAt?: number,
  *   lastPrompt?: string, lastResponse?: string, lastTool?: string, toolDetail?: string, message?: string,
  *   host: Host, tty?: string, itermSessionId?: string, statusFile?: string, ports: Listener[],
- *   model?: string, effort?: string, contextTokens?: number, contextSize?: number, git?: GitStatus
+ *   model?: string, effort?: string, contextTokens?: number, contextSize?: number, git?: GitStatus,
+ *   customTitle?: string, aiTitle?: string, rootDir?: string
  * }} Session
  * @typedef {{
  *   sessions: Session[], otherPorts: Listener[], portsScanned: boolean, scannedAt: number,
