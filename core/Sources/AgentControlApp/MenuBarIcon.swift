@@ -103,6 +103,10 @@ final class MenuBarAppearance: ObservableObject {
     }
 }
 
+/// Draws the menu bar label with AppKit.
+///
+/// Not SwiftUI's `ImageRenderer`: it brings up GPU rendering (RenderBox / Metal) that stays resident, about
+/// 30 MB for a 60×18 pt image. AppKit draws the same symbols and text into a plain bitmap.
 @MainActor
 enum MenuBarIconRenderer {
     private struct Key: Hashable {
@@ -112,6 +116,20 @@ enum MenuBarIconRenderer {
 
     private static var cache: [Key: NSImage] = [:]
 
+    private static let height: CGFloat = 18
+    private static let iconSize: CGFloat = 15
+    private static let iconTextGap: CGFloat = 3
+    private static let groupGap: CGFloat = 8
+    private static let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+    private static let symbolConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+
+    /// One part of the label: an icon and an optional count.
+    private struct Group {
+        enum Icon { case spinner, symbol(String, NSColor) }
+        let icon: Icon
+        let count: Int
+    }
+
     static func image(_ counts: MenuBarCounts, darkMenuBar: Bool) -> NSImage {
         let colored = counts.alert != .none
         // The template variant does not depend on the menu bar color.
@@ -119,83 +137,84 @@ enum MenuBarIconRenderer {
         if let image = cache[key] { return image }
         if cache.count > 64 { cache.removeAll() }
 
-        let palette = colored
-            ? MenuBarIconContent.Colors(
-                text: darkMenuBar ? .white : Color(white: 0, opacity: 0.85),
-                alert: alertColor(counts.alert, darkMenuBar: darkMenuBar)
-            )
-            : MenuBarIconContent.Colors(text: .black, alert: .black)
-        let renderer = ImageRenderer(content: MenuBarIconContent(counts: counts, colors: palette))
-        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
-        let image = renderer.nsImage ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil) ?? NSImage()
+        // Template images are drawn in black and recolored by macOS; the colored variant uses the menu bar's
+        // own text color.
+        let text: NSColor = !colored ? .black : darkMenuBar ? .white : NSColor(white: 0, alpha: 0.85)
+        var groups: [Group] = []
+        if counts.running > 0 { groups.append(Group(icon: .spinner, count: counts.running)) }
+        if counts.others > 0 || counts.running == 0 {
+            let symbol = colored
+                ? Group.Icon.symbol("bell.badge.fill", alertColor(counts.alert, darkMenuBar: darkMenuBar))
+                : Group.Icon.symbol("terminal", text)
+            groups.append(Group(icon: symbol, count: counts.others))
+        }
+
+        let image = draw(groups, text: text)
         image.isTemplate = !colored
         cache[key] = image
         return image
     }
 
-    private static func alertColor(_ alert: MenuBarCounts.Alert, darkMenuBar: Bool) -> Color {
-        switch alert {
-        case .error: Color(nsColor: darkMenuBar ? .systemRed : NSColor(srgbRed: 0.80, green: 0.16, blue: 0.11, alpha: 1))
-        default: Color(nsColor: darkMenuBar ? .systemOrange : NSColor(srgbRed: 0.85, green: 0.39, blue: 0.0, alpha: 1))
+    private static func draw(_ groups: [Group], text: NSColor) -> NSImage {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text]
+        let labels = groups.map { $0.count > 0 ? NSAttributedString(string: "\($0.count)", attributes: attributes) : nil }
+        let symbols: [NSImage?] = groups.map { group in
+            guard case let .symbol(name, color) = group.icon else { return nil }
+            let config = symbolConfig.applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+            return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
         }
-    }
-}
+        let widths = groups.indices.map { i in
+            let icon = symbols[i]?.size.width ?? iconSize
+            return icon + (labels[i].map { iconTextGap + ceil($0.size().width) } ?? 0)
+        }
+        let width = widths.reduce(0, +) + groupGap * CGFloat(max(0, groups.count - 1)) + 2
 
-private struct MenuBarIconContent: View {
-    struct Colors {
-        let text: Color
-        let alert: Color
-    }
-
-    let counts: MenuBarCounts
-    let colors: Colors
-
-    private let font = Font.system(size: 13, weight: .medium)
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if counts.running > 0 {
-                group(count: counts.running) { SpinnerShape() }
-            }
-            if counts.others > 0 || counts.running == 0 {
-                group(count: counts.others) {
-                    if counts.alert == .none {
-                        Image(systemName: "terminal").font(font)
-                    } else {
-                        Image(systemName: "bell.badge.fill").font(font).foregroundStyle(colors.alert)
+        return NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
+            var x: CGFloat = 1
+            for (i, group) in groups.enumerated() {
+                switch group.icon {
+                case .spinner:
+                    drawSpinner(in: NSRect(x: x, y: (height - iconSize) / 2, width: iconSize, height: iconSize), color: text)
+                    x += iconSize
+                case .symbol:
+                    if let symbol = symbols[i] {
+                        symbol.draw(in: NSRect(origin: NSPoint(x: x, y: (height - symbol.size.height) / 2), size: symbol.size))
+                        x += symbol.size.width
                     }
                 }
+                if let label = labels[i] {
+                    let size = label.size()
+                    label.draw(at: NSPoint(x: x + iconTextGap, y: (height - size.height) / 2))
+                    x += iconTextGap + ceil(size.width)
+                }
+                x += groupGap
             }
+            return true
         }
-        .foregroundStyle(colors.text)
-        .padding(.horizontal, 1)
-        .frame(height: 18)
     }
 
-    private func group(count: Int, @ViewBuilder icon: () -> some View) -> some View {
-        HStack(spacing: 3) {
-            icon()
-            if count > 0 { Text("\(count)").font(font).monospacedDigit() }
+    /// The classic macOS activity spinner: eight spokes, the head (top) opaque and the tail fading out
+    /// counter-clockwise behind it.
+    private static func drawSpinner(in rect: NSRect, color: NSColor) {
+        let spokes = 8
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        for i in 0..<spokes {
+            let behind = (spokes - i) % spokes
+            let transform = NSAffineTransform()
+            transform.translateX(by: center.x, yBy: center.y)
+            // Clockwise from the top: AppKit rotates counter-clockwise for positive angles.
+            transform.rotate(byDegrees: -CGFloat(i) * 360 / CGFloat(spokes))
+            let spoke = NSBezierPath(roundedRect: NSRect(x: -1, y: 2.25, width: 2, height: 4.5), xRadius: 1, yRadius: 1)
+            spoke.transform(using: transform as AffineTransform)
+            color.withAlphaComponent(color.alphaComponent * max(0.22, 1 - CGFloat(behind) * 0.13)).setFill()
+            spoke.fill()
         }
     }
-}
 
-/// The classic macOS activity spinner: eight spokes, the head opaque and the tail fading out.
-private struct SpinnerShape: View {
-    private static let spokes = 8
-
-    var body: some View {
-        ZStack {
-            ForEach(0..<Self.spokes, id: \.self) { i in
-                // Spoke 0 (top) is the head; the tail fades counter-clockwise behind it.
-                let behind = (Self.spokes - i) % Self.spokes
-                Capsule()
-                    .frame(width: 2, height: 4.5)
-                    .offset(y: -4.5)
-                    .rotationEffect(.degrees(Double(i) * 360 / Double(Self.spokes)))
-                    .opacity(max(0.22, 1 - Double(behind) * 0.13))
-            }
+    private static func alertColor(_ alert: MenuBarCounts.Alert, darkMenuBar: Bool) -> NSColor {
+        switch alert {
+        case .error: darkMenuBar ? .systemRed : NSColor(srgbRed: 0.80, green: 0.16, blue: 0.11, alpha: 1)
+        default: darkMenuBar ? .systemOrange : NSColor(srgbRed: 0.85, green: 0.39, blue: 0.0, alpha: 1)
         }
-        .frame(width: 15, height: 15)
     }
 }
