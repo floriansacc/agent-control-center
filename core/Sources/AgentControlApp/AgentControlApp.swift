@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
         AppModel.shared.start()
+        StatusItemMenu.shared.install()
     }
 
     func userNotificationCenter(
