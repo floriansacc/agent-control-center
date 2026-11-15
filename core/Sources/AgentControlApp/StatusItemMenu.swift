@@ -27,18 +27,10 @@ final class StatusItemMenu: NSObject {
     }
 
     private static func statusButton(in window: NSWindow) -> NSButton? {
-        guard NSStringFromClass(type(of: window)).contains("StatusBarWindow"),
-              let content = window.contentView
-        else { return nil }
-        return findButton(in: content)
-    }
-
-    private static func findButton(in view: NSView) -> NSButton? {
-        if let button = view as? NSButton { return button }
-        for sub in view.subviews {
-            if let button = findButton(in: sub) { return button }
+        guard NSStringFromClass(type(of: window)).contains("StatusBarWindow"), let content = window.contentView else {
+            return nil
         }
-        return nil
+        return MenuBarAppearance.findButton(in: content)
     }
 
     private func show(from button: NSButton) {
@@ -51,6 +43,13 @@ final class StatusItemMenu: NSObject {
         menu.addItem(.separator())
         menu.addItem(item("Notify when input is needed", on: model.notifyOnWaiting) { model.notifyOnWaiting.toggle() })
         menu.addItem(item("Notify when a session finishes", on: model.notifyOnDone) { model.notifyOnDone.toggle() })
+        let fold = NSMenuItem(title: "Fold idle sessions after", action: nil, keyEquivalent: "")
+        let foldMenu = NSMenu()
+        for choice in AppModel.foldIdleChoices {
+            foldMenu.addItem(item(choice.label, on: model.foldIdleAfter == choice.seconds) { model.foldIdleAfter = choice.seconds })
+        }
+        fold.submenu = foldMenu
+        menu.addItem(fold)
         if model.isBundled {
             menu.addItem(item("Launch at login", on: model.launchAtLogin) { model.setLaunchAtLogin(!model.launchAtLogin) })
         }

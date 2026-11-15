@@ -132,6 +132,56 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertNil(ClaudeDesktop.localSessionId(forCliSession: "cli-unknown", in: dir))
     }
 
+    func testHookSetupRegistersOnceAndKeepsOtherHooks() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acc-hook-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let settings = dir.appendingPathComponent("settings.json")
+        let script = dir.appendingPathComponent("bundle/agent-status.sh")
+        let installed = dir.appendingPathComponent("support/agent-status.sh")
+        try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: script)
+        let original = #"{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/cc-status"}]}]}}"#
+        try Data(original.utf8).write(to: settings)
+
+        XCTAssertFalse(HookSetup.isInstalled(settingsURL: settings))
+        try HookSetup.install(bundledScript: script, settingsURL: settings, installedScript: installed)
+        XCTAssertTrue(HookSetup.isInstalled(settingsURL: settings))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: installed.path))
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as? [String: Any])
+        XCTAssertEqual(json["model"] as? String, "opus")
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: [[String: Any]]])
+        XCTAssertEqual(hooks.count, HookSetup.events.count)
+        let stopCommands = hooks["Stop"]?.flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] }.compactMap { $0["command"] as? String }
+        XCTAssertEqual(stopCommands, ["/x/cc-status", "\"\(installed.path)\""])
+
+        // Running it again changes nothing and makes no second backup.
+        try HookSetup.install(bundledScript: script, settingsURL: settings, installedScript: installed)
+        let backups = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.contains(".bak-") }
+        XCTAssertEqual(backups.count, 1)
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent(backups[0]), encoding: .utf8), original)
+    }
+
+    func testIdleFoldingAndActivity() {
+        var s = Session(key: "k", cwd: "/w", project: "w", status: .done, host: .iterm, ports: [])
+        s.statusSince = 1000
+        XCTAssertTrue(s.isIdle(longerThan: 3600, now: 1000 + 3601))
+        XCTAssertFalse(s.isIdle(longerThan: 3600, now: 1000 + 60))
+        s.status = .waiting
+        XCTAssertFalse(s.isIdle(longerThan: 3600, now: 1000 + 99999), "sessions that need you are never folded")
+
+        s.status = .working
+        s.lastTool = "Bash"
+        s.toolDetail = "Run the tests"
+        XCTAssertEqual(s.activity, "Bash · Run the tests")
+        s.lastTool = "mcp__figma__get_screenshot"
+        s.toolDetail = nil
+        XCTAssertEqual(s.activity, "figma get_screenshot")
+        s.status = .done
+        XCTAssertNil(s.activity)
+    }
+
     func testSplitFields() {
         let (fields, rest) = splitFields("  12   34 ttys001   /a b/c d  ", count: 3)
         XCTAssertEqual(fields, ["12", "34", "ttys001"])

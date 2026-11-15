@@ -2,7 +2,7 @@
   "name": "agent-control-center",
   "displayName": "Agent Control Center",
   "description": "Sidebar of running Claude Code sessions (VS Code and iTerm): status, terminal, and ports.",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "publisher": "local",
   "license": "UNLICENSED",
   "engines": {
@@ -196,6 +196,12 @@
           "type": "boolean",
           "default": false,
           "description": "Show a notification when a session finishes its turn."
+        },
+        "agentControl.foldIdleAfterMinutes": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "description": "Fold sessions that have been idle or finished for longer than this into an Idle group. 0 never folds."
         },
         "agentControl.hideEphemeralPorts": {
           "type": "boolean",

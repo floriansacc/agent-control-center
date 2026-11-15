@@ -76,6 +76,8 @@ public struct Session: Codable, Sendable, Identifiable {
     /// Claude's reply at the end of the last turn, as plain text.
     public var lastResponse: String?
     public var lastTool: String?
+    /// What the current tool call is about: a command's description, a file name, a search pattern…
+    public var toolDetail: String?
     public var message: String?
     public var host: SessionHost
     public var tty: String?
@@ -92,6 +94,27 @@ public struct Session: Codable, Sendable, Identifiable {
         case .working, .waiting: return lastPrompt
         default: return lastResponse ?? lastPrompt
         }
+    }
+
+    /// The step Claude is on while a turn runs, e.g. "Bash · Run the tests" or "figma · get_screenshot".
+    public var activity: String? {
+        guard status == .working || status == .waiting, let tool = lastTool else { return nil }
+        let label = Self.toolLabel(tool)
+        guard let detail = toolDetail, !detail.isEmpty else { return label }
+        return "\(label) · \(detail)"
+    }
+
+    /// MCP tools are named `mcp__<server>__<tool>`; show them as "<server> <tool>".
+    public static func toolLabel(_ tool: String) -> String {
+        let parts = tool.components(separatedBy: "__")
+        guard parts.count >= 3, parts[0] == "mcp" else { return tool }
+        return "\(parts[1]) \(parts[2...].joined(separator: "__"))"
+    }
+
+    /// Idle or finished for longer than `seconds`: shown folded away. Sessions that need you never are.
+    public func isIdle(longerThan seconds: Double, now: Double = Date().timeIntervalSince1970) -> Bool {
+        guard status == .idle || status == .done, let since = statusSince ?? updatedAt else { return false }
+        return now - since > seconds
     }
 }
 

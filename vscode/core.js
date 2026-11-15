@@ -21,7 +21,7 @@ const FOCUS_REQUEST = path.join(STATUS_DIR, '.focus-request');
  * @typedef {{
  *   key: string, sessionId?: string, pid?: number, cwd: string, project: string, branch?: string,
  *   status: Status, statusSince?: number, updatedAt?: number, startedAt?: number,
- *   lastPrompt?: string, lastResponse?: string, lastTool?: string, message?: string,
+ *   lastPrompt?: string, lastResponse?: string, lastTool?: string, toolDetail?: string, message?: string,
  *   host: Host, tty?: string, itermSessionId?: string, statusFile?: string, ports: Listener[]
  * }} Session
  * @typedef {{ sessions: Session[], otherPorts: Listener[], portsScanned: boolean, scannedAt: number, menuBarAppRunning: boolean }} Snapshot

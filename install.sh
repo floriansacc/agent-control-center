@@ -3,6 +3,8 @@
 #
 #   ./install.sh                 everything: hook + VS Code extension + menu bar app + agentctl CLI
 #   ./install.sh vscode app      only some parts (hook | vscode | app | cli)
+#   ./install.sh dmg             build dist/AgentControlCenter-<version>.dmg (menu bar app only; it offers
+#                                to set up the hook itself). Not part of the default set.
 #   ./install.sh --uninstall     remove everything
 #
 # Idempotent. Existing Claude hooks (e.g. iTerm's cc-status) are kept.
@@ -17,6 +19,7 @@ EXT_ID="local.agent-control-center"
 VSIX="$ROOT/dist/agent-control-center.vsix"
 APP="$HOME/Applications/Agent Control Center.app"
 APP_EXE="AgentControlApp"
+VERSION="0.4.0"
 CLI="$HOME/.local/bin/agentctl"
 BUNDLE_ID="local.agent-control-center"
 CODE=$(command -v code || echo "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code")
@@ -87,14 +90,15 @@ install_cli() {
   esac
 }
 
-install_app() {
-  echo "→ Bundling $APP"
-  pkill -x "$APP_EXE" 2>/dev/null || true
-  rm -rf "$APP"
-  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-  cp "$BIN_DIR/$APP_EXE" "$APP/Contents/MacOS/$APP_EXE"
-  # TODO: add an AppIcon.icns (only visible in Finder / Login Items; the app lives in the menu bar).
-  cat > "$APP/Contents/Info.plist" <<PLIST
+# Writes the .app bundle to $1 (menu bar app + icon + the hook script, which the app can install itself).
+bundle_app() {
+  dest=$1
+  rm -rf "$dest"
+  mkdir -p "$dest/Contents/MacOS" "$dest/Contents/Resources"
+  cp "$BIN_DIR/$APP_EXE" "$dest/Contents/MacOS/$APP_EXE"
+  cp "$ROOT/assets/icon/AppIcon.icns" "$dest/Contents/Resources/AppIcon.icns"
+  cp "$HOOK" "$dest/Contents/Resources/agent-status.sh"
+  cat > "$dest/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -103,9 +107,10 @@ install_app() {
   <key>CFBundleName</key><string>Agent Control Center</string>
   <key>CFBundleDisplayName</key><string>Agent Control Center</string>
   <key>CFBundleExecutable</key><string>$APP_EXE</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.2.0</string>
-  <key>CFBundleVersion</key><string>2</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
@@ -114,7 +119,32 @@ install_app() {
 </plist>
 PLIST
   # Ad-hoc signature: required for notifications and the login item on recent macOS.
-  codesign --force --sign - "$APP"
+  codesign --force --sign - "$dest"
+}
+
+make_dmg() {
+  staging="$ROOT/dist/dmg"
+  out="$ROOT/dist/AgentControlCenter-$VERSION.dmg"
+  echo "→ Building $out"
+  rm -rf "$staging"
+  mkdir -p "$staging"
+  bundle_app "$staging/Agent Control Center.app"
+  ln -s /Applications "$staging/Applications"
+  rm -f "$out"
+  # `diskutil image` replaces the deprecated `hdiutil create` on recent macOS; UDZO opens on any version.
+  if diskutil image create from --help >/dev/null 2>&1; then
+    diskutil image create from --format UDZO --volumeName "Agent Control Center" "$staging" "$out" >/dev/null 2>&1
+  else
+    hdiutil create -volname "Agent Control Center" -srcfolder "$staging" -ov -format UDZO "$out" >/dev/null
+  fi
+  rm -rf "$staging"
+  echo "  $out"
+}
+
+install_app() {
+  echo "→ Bundling $APP"
+  pkill -x "$APP_EXE" 2>/dev/null || true
+  bundle_app "$APP"
   open "$APP"
 }
 
@@ -140,8 +170,8 @@ fi
 [ $# -gt 0 ] || set -- hook vscode app cli
 for part in "$@"; do
   case "$part" in
-    hook|vscode|app|cli) ;;
-    *) echo "unknown part: $part (expected hook, vscode, app, cli)" >&2; exit 64 ;;
+    hook|vscode|app|cli|dmg) ;;
+    *) echo "unknown part: $part (expected hook, vscode, app, cli, dmg)" >&2; exit 64 ;;
   esac
 done
 for part in "$@"; do
@@ -162,6 +192,7 @@ for part in "$@"; do
       echo "Agent Control Center is in the menu bar (and starts at login)."
       ;;
     cli) install_cli ;;
+    dmg) make_dmg ;;
   esac
 done
 echo "Done."

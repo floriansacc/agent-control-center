@@ -65,6 +65,7 @@ public final class Scanner: @unchecked Sendable {
                 lastPrompt: Self.nonEmpty(data["last_prompt"]),
                 lastResponse: Self.nonEmpty(data["last_response"]),
                 lastTool: Self.nonEmpty(data["last_tool"]),
+                toolDetail: Self.nonEmpty(data["tool_detail"]),
                 message: Self.nonEmpty(data["message"]),
                 host: Self.detectHost(
                     procs, pid: pid,

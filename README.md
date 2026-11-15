@@ -1,12 +1,14 @@
 # Agent Control Center
 
-See every running Claude Code session — in iTerm, a VS Code terminal, or the Claude panel in
-VS Code — with its live status, the ports it opened, and one click to jump to it.
+See every running Claude Code session — in iTerm, a VS Code terminal, the Claude panel in VS Code, or
+the Claude desktop app's Code tab — with its live status, what it is doing right now, its last reply,
+the ports it opened, and one click to jump to it.
 
 Two front-ends, one core:
 
-- **Menu bar app** (macOS): icon shows what needs you; dropdown lists sessions; detach it as an
-  always-on-top floating panel; native notifications with "Jump to session".
+- **Menu bar app** (macOS): the icon counts running and other sessions, with an orange bell while one
+  needs you; the dropdown lists sessions (long-idle ones folded away); right-click for settings; detach it
+  as an always-on-top floating panel; native notifications with "Jump to session".
 - **VS Code sidebar**: the same list inside VS Code (activity bar → Agents).
 
 ## Layout
@@ -55,6 +57,17 @@ local process and are not tracked.
 Requires Xcode (Swift 6), `jq` (ships with macOS) and `npx` for packaging the extension.
 The app is installed to `~/Applications` and registers itself to launch at login (toggle in its ⚙ menu).
 The first click on an iTerm session asks macOS for permission to control iTerm.
+
+### DMG (menu bar app only)
+
+```sh
+./install.sh dmg              # → dist/AgentControlCenter-<version>.dmg
+```
+
+The app bundles the hook script; on a Mac without the repository it shows a "Set Up" banner that copies
+it to `~/Library/Application Support/Agent Control Center/` and registers it in `~/.claude/settings.json`
+(other hooks kept, backup saved). The app is ad-hoc signed, not notarized: on another Mac, open it the
+first time with right-click → Open (or System Settings → Privacy & Security → Open Anyway).
 
 ## CLI
 

@@ -24,6 +24,20 @@ extension SessionStatus {
     }
 }
 
+/// SF Symbol for a Claude Code tool.
+func toolSymbol(_ tool: String) -> String {
+    switch tool {
+    case "Bash": "terminal"
+    case "Read": "doc.text"
+    case "Edit", "MultiEdit", "Write", "NotebookEdit": "pencil"
+    case "Grep", "Glob": "magnifyingglass"
+    case "WebFetch", "WebSearch": "globe"
+    case "Task", "Agent": "person.2"
+    case "TodoWrite": "checklist"
+    default: tool.hasPrefix("mcp__") ? "puzzlepiece.extension" : "gearshape"
+    }
+}
+
 extension SessionHost {
     var symbol: String {
         switch self {
@@ -52,6 +66,7 @@ struct SessionListView: View {
     @ObservedObject var model: AppModel
     let style: Style
     @State private var showOtherPorts = false
+    @State private var showIdle = false
     @State private var contentHeight: CGFloat = 0
     /// Class, not @State value: updating it must not trigger a re-render.
     @State private var windowFitter = MenuWindowFitter()
@@ -131,6 +146,11 @@ struct SessionListView: View {
             Menu {
                 Toggle("Notify when input is needed", isOn: $model.notifyOnWaiting)
                 Toggle("Notify when a session finishes", isOn: $model.notifyOnDone)
+                Picker("Fold idle sessions after", selection: $model.foldIdleAfter) {
+                    ForEach(AppModel.foldIdleChoices, id: \.seconds) { choice in
+                        Text(choice.label).tag(choice.seconds)
+                    }
+                }
                 if model.isBundled {
                     Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 }
@@ -147,8 +167,31 @@ struct SessionListView: View {
         .padding(.vertical, 8)
     }
 
+    private var foldIdleLabel: String {
+        AppModel.foldIdleChoices.first { $0.seconds == model.foldIdleAfter }?.label ?? "a while"
+    }
+
+    private var hookBanner: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Claude Code hook not set up").font(.callout.weight(.semibold))
+                Text("Sessions show up, but without their status, prompt or reply.")
+                    .font(.caption)
+                    .foregroundStyle(Palette.textBody)
+            }
+            Spacer(minLength: 4)
+            Button("Set Up") { model.setUpHook() }
+                .controlSize(.small)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Palette.orange.opacity(0.12)))
+        .padding(.bottom, 4)
+    }
+
     private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if !model.hookInstalled { hookBanner }
             if model.snapshot.sessions.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: "terminal").font(.title2).foregroundStyle(Palette.textMeta)
@@ -158,8 +201,24 @@ struct SessionListView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)
             }
-            ForEach(model.snapshot.sessions) { session in
+            let sessions = model.visibleAndIdleSessions
+            ForEach(sessions.visible) { session in
                 SessionRow(session: session, model: model)
+            }
+            if !sessions.idle.isEmpty {
+                Divider().padding(.vertical, 4)
+                DisclosureGroup(isExpanded: $showIdle) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(sessions.idle) { session in
+                            SessionRow(session: session, model: model)
+                        }
+                    }
+                    .padding(.top, 4)
+                } label: {
+                    Text("Idle (\(sessions.idle.count))").font(.caption).foregroundStyle(Palette.textMeta)
+                }
+                .padding(.horizontal, 8)
+                .help("Sessions idle for more than \(foldIdleLabel). Change it in ⚙.")
             }
             if !model.snapshot.otherPorts.isEmpty {
                 Divider().padding(.vertical, 4)
@@ -232,6 +291,19 @@ struct SessionRow: View {
                 if let summary = session.summary {
                     Text(summary).font(.caption).foregroundStyle(Palette.textBody).lineLimit(2).truncationMode(.tail)
                 }
+                if let activity = session.activity, let tool = session.lastTool {
+                    HStack(spacing: 4) {
+                        Image(systemName: toolSymbol(tool))
+                            .font(.caption2)
+                            .foregroundStyle(session.status.color)
+                            .frame(width: 12)
+                        Text(activity)
+                            .font(.caption)
+                            .foregroundStyle(Palette.textMeta)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
                 HStack(spacing: 4) {
                     Label(session.host.label, systemImage: session.host.symbol)
                         .font(.caption2)
@@ -273,7 +345,7 @@ struct SessionRow: View {
         if let pid = session.pid { lines.append("pid \(pid)") }
         if let prompt = session.lastPrompt { lines.append("You: \(prompt)") }
         if let response = session.lastResponse { lines.append("Claude: \(response)") }
-        if session.status == .working, let tool = session.lastTool { lines.append("last tool: \(tool)") }
+        if let activity = session.activity { lines.append("Now: \(activity)") }
         if session.status == .untracked { lines.append("Started before the status hook was installed.") }
         lines.append("Click to jump to this session.")
         return lines.joined(separator: "\n")

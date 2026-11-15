@@ -100,6 +100,20 @@ printf '%s' "$input" | "$JQ" -c \
     | gsub("\\s+"; " ")
     | gsub("^ +| +$"; "");
   def text: if type == "string" then . elif . == null then "" else tostring end;
+  def basename: text | split("/") | last // "";
+  # One line about a tool call (input: its tool_input). null when there is nothing worth showing.
+  def detail($tool):
+    (if $tool == "Bash" then (.description // .command)
+     elif ($tool | test("^(Read|Edit|Write|MultiEdit|NotebookEdit)$")) then ((.file_path // .notebook_path) | basename)
+     elif $tool == "Grep" or $tool == "Glob" then .pattern
+     elif $tool == "WebFetch" then (.url | text | capture("^[a-z]+://(?<h>[^/?#]+)").h? // .url)
+     elif $tool == "WebSearch" then .query
+     elif $tool == "Task" or $tool == "Agent" then (.description // .subagent_type)
+     elif $tool == "TodoWrite" then ([.todos[]? | select(.status == "in_progress") | (.activeForm // .content)] | first)
+     elif $tool == "Skill" then (.skill // .command)
+     else null end)
+    | text | gsub("\\s+"; " ") | gsub("^ +| +$"; "") | .[0:120]
+    | if . == "" then null else . end;
   ($now | tonumber) as $t
   | $prev + {
       session_id: .session_id,
@@ -137,7 +151,13 @@ printf '%s' "$input" | "$JQ" -c \
       | gsub("<(ide_[a-z_]+|system-reminder)>.*?</\\1>"; "")
       | gsub("^ +| +$"; "")) as $prompt
   | (if $prompt != "" then { last_prompt: $prompt[0:200] } else {} end)
-  + (if $event == "PreToolUse" then { last_tool: .tool_name } else {} end)
+  # The step Claude is on, e.g. Bash "Run the tests" or Edit "Theme.swift". Kept while it waits for a
+  # permission (that is what it asks about); cleared when a turn starts or ends.
+  + (if $event == "PreToolUse" then
+       { last_tool: .tool_name, tool_detail: (.tool_name as $tool | (.tool_input // {}) | detail($tool)) }
+     elif $event == "UserPromptSubmit" or $event == "Stop" or $event == "StopFailure" or $event == "SessionStart" then
+       { last_tool: null, tool_detail: null }
+     else {} end)
 ' > "$tmp" 2>/dev/null && mv -f "$tmp" "$file"
 rm -f "$tmp" 2>/dev/null
 exit 0

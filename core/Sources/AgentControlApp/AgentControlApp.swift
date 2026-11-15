@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         AppModel.shared.start()
         StatusItemMenu.shared.install()
+        MenuBarAppearance.shared.attach()
     }
 
     func userNotificationCenter(

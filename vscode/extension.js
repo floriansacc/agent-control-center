@@ -14,7 +14,9 @@ const { registerWindow } = require('./windows');
  * @typedef {import('./core').Status} Status
  * @typedef {{ kind: 'session', session: Session }
  *   | { kind: 'port', port: Listener, parentKey: string }
- *   | { kind: 'summary', session: Session }} Node
+ *   | { kind: 'summary', session: Session }
+ *   | { kind: 'activity', session: Session }
+ *   | { kind: 'idle', sessions: Session[] }} Node
  */
 
 /** @type {Record<Status, { icon: string, color?: string, label: string }>} */
@@ -59,6 +61,63 @@ const truncate = (text, max) => (text.length > max ? text.slice(0, max - 1) + '�
 const summary = (s) =>
   s.status === 'working' || s.status === 'waiting' ? s.lastPrompt : (s.lastResponse ?? s.lastPrompt);
 
+/**
+ * MCP tools are named `mcp__<server>__<tool>`. Mirrors `Session.toolLabel` in Models.swift.
+ * @param {string} tool
+ */
+const toolLabel = (tool) => {
+  const parts = tool.split('__');
+  return parts.length >= 3 && parts[0] === 'mcp' ? `${parts[1]} ${parts.slice(2).join('__')}` : tool;
+};
+
+/**
+ * The step Claude is on while a turn runs. Mirrors `Session.activity` in Models.swift.
+ * @param {Session} s
+ */
+const activity = (s) => {
+  if ((s.status !== 'working' && s.status !== 'waiting') || !s.lastTool) return undefined;
+  const label = toolLabel(s.lastTool);
+  return s.toolDetail ? `${label} · ${s.toolDetail}` : label;
+};
+
+/** @param {string} tool */
+function toolIcon(tool) {
+  switch (tool) {
+    case 'Bash':
+      return 'terminal';
+    case 'Read':
+      return 'file';
+    case 'Edit':
+    case 'MultiEdit':
+    case 'Write':
+    case 'NotebookEdit':
+      return 'edit';
+    case 'Grep':
+    case 'Glob':
+      return 'search';
+    case 'WebFetch':
+    case 'WebSearch':
+      return 'globe';
+    case 'Task':
+    case 'Agent':
+      return 'organization';
+    case 'TodoWrite':
+      return 'checklist';
+    default:
+      return tool.startsWith('mcp__') ? 'extensions' : 'tools';
+  }
+}
+
+/**
+ * Idle or finished for longer than the threshold. Mirrors `Session.isIdle(longerThan:)` in Models.swift.
+ * @param {Session} s @param {number} seconds
+ */
+const isIdleFor = (s, seconds) => {
+  if (s.status !== 'idle' && s.status !== 'done') return false;
+  const since = s.statusSince ?? s.updatedAt;
+  return since != null && Date.now() / 1000 - since > seconds;
+};
+
 const config = () => vscode.workspace.getConfiguration('agentControl');
 
 /** @implements {vscode.TreeDataProvider<Node>} */
@@ -87,12 +146,19 @@ class AgentTree {
       return this.snap.otherPorts.map((port) => ({ kind: 'port', port, parentKey: 'other' }));
     }
     if (!node) {
-      // Already sorted by agentctl: needs-attention first.
-      return this.snap.sessions.map((session) => ({ kind: 'session', session }));
+      // Already sorted by agentctl: needs-attention first. Long-idle sessions are folded at the end.
+      const minutes = Number(config().get('foldIdleAfterMinutes', 60));
+      const idle = minutes > 0 ? this.snap.sessions.filter((s) => isIdleFor(s, minutes * 60)) : [];
+      /** @type {Node[]} */
+      const roots = this.snap.sessions.filter((s) => !idle.includes(s)).map((session) => ({ kind: 'session', session }));
+      if (idle.length > 0) roots.push({ kind: 'idle', sessions: idle });
+      return roots;
     }
+    if (node.kind === 'idle') return node.sessions.map((session) => ({ kind: 'session', session }));
     if (node.kind !== 'session') return [];
     /** @type {Node[]} */
     const children = [];
+    if (activity(node.session)) children.push({ kind: 'activity', session: node.session });
     if (summary(node.session)) children.push({ kind: 'summary', session: node.session });
     for (const port of node.session.ports) children.push({ kind: 'port', port, parentKey: node.session.key });
     return children;
@@ -101,6 +167,25 @@ class AgentTree {
   /** @param {Node} node */
   getTreeItem(node) {
     if (node.kind === 'session') return sessionItem(node.session);
+    if (node.kind === 'idle') {
+      const item = new vscode.TreeItem(`Idle (${node.sessions.length})`, vscode.TreeItemCollapsibleState.Collapsed);
+      item.id = 'idle-group';
+      item.iconPath = new vscode.ThemeIcon('history');
+      item.tooltip = 'Sessions idle for longer than agentControl.foldIdleAfterMinutes.';
+      return item;
+    }
+    if (node.kind === 'activity') {
+      const text = activity(node.session) ?? '';
+      const item = new vscode.TreeItem(truncate(text, 80));
+      item.id = `${node.session.key}/activity`;
+      const m = meta(node.session.status);
+      item.iconPath = new vscode.ThemeIcon(
+        toolIcon(node.session.lastTool ?? ''),
+        m.color ? new vscode.ThemeColor(m.color) : undefined,
+      );
+      item.tooltip = `Now: ${text}`;
+      return item;
+    }
     if (node.kind === 'summary') {
       const text = summary(node.session) ?? '';
       const isResponse = text === node.session.lastResponse;
@@ -129,7 +214,7 @@ class AgentTree {
 /** @param {Session} s */
 function sessionItem(s) {
   const m = meta(s.status);
-  const hasChildren = Boolean(summary(s)) || s.ports.length > 0;
+  const hasChildren = Boolean(summary(s) || activity(s)) || s.ports.length > 0;
   const item = new vscode.TreeItem(
     s.project,
     hasChildren
@@ -149,7 +234,8 @@ function sessionItem(s) {
   if (s.message) md.appendMarkdown(`> ${s.message}\n\n`);
   if (s.lastPrompt) md.appendMarkdown(`**You:** ${s.lastPrompt}\n\n`);
   if (s.lastResponse) md.appendMarkdown(`**Claude:** ${s.lastResponse}\n\n`);
-  if (s.lastTool && s.status === 'working') md.appendMarkdown(`**Last tool:** ${s.lastTool}\n\n`);
+  const now = activity(s);
+  if (now) md.appendMarkdown(`**Now:** ${now}\n\n`);
   md.appendMarkdown(`\`${s.cwd}\`${s.branch ? ` on \`${s.branch}\`` : ''}\n\n`);
   md.appendMarkdown(`${HOST_LABEL[s.host]}${s.tty && s.tty !== '??' ? ` (${s.tty})` : ''} · pid ${s.pid ?? '?'}`);
   if (s.startedAt) md.appendMarkdown(` · started ${ago(s.startedAt)} ago`);

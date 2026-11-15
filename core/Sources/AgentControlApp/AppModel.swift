@@ -17,12 +17,22 @@ final class AppModel: ObservableObject {
     @Published private(set) var snapshot = Snapshot.empty
     @Published private(set) var panelVisible = false
     @Published private(set) var launchAtLogin = false
+    /// False until the status hook is registered in ~/.claude/settings.json (by install.sh or by the app).
+    @Published private(set) var hookInstalled = true
     @Published var notifyOnWaiting: Bool {
         didSet { defaults.set(notifyOnWaiting, forKey: "notifyOnWaiting") }
     }
     @Published var notifyOnDone: Bool {
         didSet { defaults.set(notifyOnDone, forKey: "notifyOnDone") }
     }
+    /// Sessions idle or finished for longer than this (seconds) are folded into an "Idle" section; 0 = never.
+    @Published var foldIdleAfter: Double {
+        didSet { defaults.set(foldIdleAfter, forKey: "foldIdleAfter") }
+    }
+
+    static let foldIdleChoices: [(label: String, seconds: Double)] = [
+        ("30 minutes", 1800), ("1 hour", 3600), ("3 hours", 10800), ("Never", 0),
+    ]
 
     private let defaults = UserDefaults.standard
     private var timer: Timer?
@@ -41,12 +51,25 @@ final class AppModel: ObservableObject {
     }()
 
     private init() {
-        defaults.register(defaults: ["notifyOnWaiting": true, "notifyOnDone": false])
+        defaults.register(defaults: ["notifyOnWaiting": true, "notifyOnDone": false, "foldIdleAfter": 3600.0])
         notifyOnWaiting = defaults.bool(forKey: "notifyOnWaiting")
         notifyOnDone = defaults.bool(forKey: "notifyOnDone")
+        foldIdleAfter = defaults.double(forKey: "foldIdleAfter")
     }
 
     var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+
+    /// Splits the sessions into those shown and those folded away as idle.
+    var visibleAndIdleSessions: (visible: [Session], idle: [Session]) {
+        guard foldIdleAfter > 0 else { return (snapshot.sessions, []) }
+        let now = Date().timeIntervalSince1970
+        var visible: [Session] = []
+        var idle: [Session] = []
+        for s in snapshot.sessions {
+            if s.isIdle(longerThan: foldIdleAfter, now: now) { idle.append(s) } else { visible.append(s) }
+        }
+        return (visible, idle)
+    }
 
     func start() {
         let timer = Timer(timeInterval: Self.interval, repeats: true) { _ in
@@ -65,7 +88,30 @@ final class AppModel: ObservableObject {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
         if defaults.bool(forKey: "panelOpen") { showPanel() }
+        HookSetup.refreshInstalledScript(from: Self.bundledHook)
+        hookInstalled = HookSetup.isInstalled()
         refresh()
+    }
+
+    // MARK: - Hook setup
+
+    private static var bundledHook: URL? { Bundle.main.url(forResource: "agent-status", withExtension: "sh") }
+
+    func setUpHook() {
+        let ok = confirm(
+            "Set up the Claude Code hook?",
+            "Agent Control Center adds a hook to ~/.claude/settings.json so every Claude Code session reports its "
+                + "status. Your other settings and hooks are kept, and a backup of the file is saved next to it.\n\n"
+                + "Sessions already running start reporting after their next prompt.",
+            action: "Set Up"
+        )
+        guard ok else { return }
+        do {
+            try HookSetup.install(bundledScript: Self.bundledHook)
+            hookInstalled = HookSetup.isInstalled()
+        } catch {
+            alert("Could not set up the hook", error.localizedDescription)
+        }
     }
 
     // MARK: - Scanning
@@ -80,6 +126,8 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() {
+        // Cheap (one small JSON file); picks up `install.sh hook` run while the app is open.
+        if !hookInstalled { hookInstalled = HookSetup.isInstalled() }
         if scanning {
             rescanQueued = true
             return
