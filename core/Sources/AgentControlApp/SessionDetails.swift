@@ -129,22 +129,34 @@ private struct CompactLabelStyle: LabelStyle {
     }
 }
 
-/// Plan usage under the header: "Plan usage   5h ▓▓░░ 34%   Week ▓▓▓░ 61%", reset times on hover.
+/// Plan usage under the header: "Plan usage   5h ▓▓░░ 34%   Week ▓▓▓░ 61%   3m ago", reset times on hover.
+///
+/// The numbers come from the API replies of terminal sessions (via the status line), so they can lag behind
+/// usage from the VS Code panel or the desktop app: the row says how old they are and greys out when stale.
 struct PlanUsageRow: View {
     let limits: RateLimits
 
+    /// Older than this, the numbers are shown greyed out.
+    private static let staleAfter: Double = 15 * 60
+
     var body: some View {
+        let age = max(0, Date().timeIntervalSince1970 - limits.updatedAt)
+        let stale = age > Self.staleAfter
         HStack(spacing: 14) {
             Text("Plan usage").font(.caption).foregroundStyle(Palette.textMeta)
-            if let window = limits.fiveHour { gauge("5h", window) }
-            if let window = limits.sevenDay { gauge("Week", window) }
-            Spacer()
+            if let window = limits.fiveHour { gauge("5h", window, stale: stale) }
+            if let window = limits.sevenDay { gauge("Week", window, stale: stale) }
+            Spacer(minLength: 4)
+            Text(age < 60 ? "just now" : "\(ago(limits.updatedAt)) ago")
+                .font(.caption2)
+                .foregroundStyle(Palette.textFaint)
+                .help("Updated when a terminal Claude Code session gets a reply (its status line reports the usage).")
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
 
-    private func gauge(_ label: String, _ window: UsageWindow) -> some View {
+    private func gauge(_ label: String, _ window: UsageWindow, stale: Bool) -> some View {
         HStack(spacing: 5) {
             Text(label).font(.caption.weight(.medium)).foregroundStyle(Palette.textBody)
             UsageBar(percent: window.usedPercent, width: 60)
@@ -152,6 +164,8 @@ struct PlanUsageRow: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(usageColor(window.usedPercent))
         }
+        .saturation(stale ? 0 : 1)
+        .opacity(stale ? 0.55 : 1)
         .help(help(label, window))
     }
 
@@ -164,7 +178,8 @@ struct PlanUsageRow: View {
                 : .dateTime.weekday(.abbreviated).hour().minute()
             text += " Resets \(date.formatted(style)) (in \(remaining(resets)))."
         }
-        text += "\nReported by Claude Code's status line \(ago(limits.updatedAt)) ago."
+        text += "\nAs of \(ago(limits.updatedAt)) ago: updated when a terminal session gets a reply, so usage from the "
+            + "VS Code panel or the Claude app shows up later, and it can differ by about 1% from claude.ai."
         return text
     }
 

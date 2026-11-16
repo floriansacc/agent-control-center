@@ -164,7 +164,10 @@ function planUsageText(limits) {
   const parts = [];
   if (limits.fiveHour) parts.push(`5h ${Math.round(limits.fiveHour.usedPercent)}%`);
   if (limits.sevenDay) parts.push(`week ${Math.round(limits.sevenDay.usedPercent)}%`);
-  return parts.length ? `Plan usage: ${parts.join(' · ')}` : '';
+  if (!parts.length) return '';
+  // From terminal sessions' status lines: say how old it is, it can lag behind panel / desktop usage.
+  const age = Math.floor(Date.now() / 1000 - limits.updatedAt);
+  return `Plan usage: ${parts.join(' · ')} (${age < 60 ? 'just now' : `${ago(limits.updatedAt)} ago`})`;
 }
 
 const HOME = require('os').homedir();
