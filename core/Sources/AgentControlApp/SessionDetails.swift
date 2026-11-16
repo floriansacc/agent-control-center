@@ -142,28 +142,36 @@ struct PlanUsageRow: View {
     var body: some View {
         let age = max(0, Date().timeIntervalSince1970 - limits.updatedAt)
         let stale = age > Self.staleAfter
-        HStack(spacing: 14) {
-            Text("Plan usage").font(.caption).foregroundStyle(Palette.textMeta)
-            if let window = limits.fiveHour { gauge("5h", window, stale: stale) }
-            if let window = limits.sevenDay { gauge("Week", window, stale: stale) }
-            Spacer(minLength: 4)
-            Text(age < 60 ? "just now" : "\(ago(limits.updatedAt)) ago")
-                .font(.caption2)
-                .foregroundStyle(Palette.textFaint)
-                .help("Updated when a terminal Claude Code session gets a reply (its status line reports the usage).")
+        // Two lines: on one, the header's width (beside the title and badges) truncated the labels.
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Plan usage").font(.caption).foregroundStyle(Palette.textMeta)
+                Spacer(minLength: 4)
+                Text(age < 60 ? "just now" : "\(ago(limits.updatedAt)) ago")
+                    .font(.caption2)
+                    .foregroundStyle(Palette.textFaint)
+                    .help("Updated when a terminal Claude Code session gets a reply (its status line reports the usage).")
+            }
+            HStack(spacing: 18) {
+                if let window = limits.fiveHour { gauge("5h", window, stale: stale) }
+                if let window = limits.sevenDay { gauge("Week", window, stale: stale) }
+                Spacer(minLength: 0)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
 
     private func gauge(_ label: String, _ window: UsageWindow, stale: Bool) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Text(label).font(.caption.weight(.medium)).foregroundStyle(Palette.textBody)
-            UsageBar(percent: window.usedPercent, width: 60)
+            UsageBar(percent: window.usedPercent, width: 90)
             Text("\(Int(window.usedPercent.rounded()))%")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(usageColor(window.usedPercent))
         }
+        // Never squeezed into "5…" / "W…": the gauges keep their natural width.
+        .fixedSize()
         .saturation(stale ? 0 : 1)
         .opacity(stale ? 0.55 : 1)
         .help(help(label, window))
