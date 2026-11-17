@@ -102,6 +102,9 @@ install_cli() {
 # Writes the .app bundle to $1 (menu bar app + icon + the hook script, which the app can install itself).
 bundle_app() {
   dest=$1
+  # A new build number on every build: macOS caches app icons (Notification Center especially) per bundle
+  # version, so a bundle rebuilt under the same version can keep showing a stale or generic icon.
+  build=$(date +%Y%m%d.%H%M%S)
   rm -rf "$dest"
   mkdir -p "$dest/Contents/MacOS" "$dest/Contents/Resources"
   cp "$BIN_DIR/$APP_EXE" "$dest/Contents/MacOS/$APP_EXE"
@@ -120,7 +123,7 @@ bundle_app() {
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$build</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
