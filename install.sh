@@ -109,6 +109,9 @@ bundle_app() {
   mkdir -p "$dest/Contents/MacOS" "$dest/Contents/Resources"
   cp "$BIN_DIR/$APP_EXE" "$dest/Contents/MacOS/$APP_EXE"
   cp "$ROOT/assets/icon/AppIcon.icns" "$dest/Contents/Resources/AppIcon.icns"
+  # The compiled asset catalog (assets/icon/build.sh): macOS 26+ masks its full-bleed icon natively.
+  # AppIcon.icns stays as the fallback for older systems.
+  cp "$ROOT/assets/icon/compiled/Assets.car" "$dest/Contents/Resources/Assets.car"
   cp "$HOOK" "$dest/Contents/Resources/agent-status.sh"
   cp "$STATUSLINE" "$dest/Contents/Resources/agent-statusline.sh"
   cat > "$dest/Contents/Info.plist" <<PLIST
@@ -121,6 +124,7 @@ bundle_app() {
   <key>CFBundleDisplayName</key><string>Agent Control Center</string>
   <key>CFBundleExecutable</key><string>$APP_EXE</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$build</string>

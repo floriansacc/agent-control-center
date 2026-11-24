@@ -187,13 +187,15 @@ private struct BaseChip: View {
                         }
                     }
                 }
-                Text(name)
+                Text(name).lineLimit(1)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(Capsule().fill(selected ? theme.accent.opacity(0.15) : theme.background))
             .overlay(Capsule().strokeBorder(selected ? theme.accent : theme.border, lineWidth: selected ? 2 : 1))
             .contentShape(Capsule())
+            // Never squeezed into two lines: the Settings window is wide enough for the whole row.
+            .fixedSize()
         }
         .buttonStyle(.plain)
     }
@@ -241,7 +243,7 @@ private struct CustomChip: View {
                             .overlay(Circle().strokeBorder(current.border))
                     }
                 }
-                Text(theme.name).lineLimit(1)
+                Text(theme.name).lineLimit(1).truncationMode(.tail).frame(maxWidth: 220)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)

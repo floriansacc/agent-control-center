@@ -25,17 +25,25 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "Settings"
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 640, height: 480)
+        // Wide enough for the Appearance page's base row (System, Neutral, Zinc, Stone, Slate) on one line.
+        window.minSize = NSSize(width: 860, height: 480)
         window.delegate = self
         window.center()
         window.setFrameAutosaveName("AgentControlSettingsWindow")
+        // A size saved before the minimum grew.
+        if window.frame.width < window.minSize.width || window.frame.height < window.minSize.height {
+            var frame = window.frame
+            frame.size.width = max(frame.width, window.minSize.width)
+            frame.size.height = max(frame.height, window.minSize.height)
+            window.setFrame(frame, display: false)
+        }
         return window
     }
 
