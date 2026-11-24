@@ -48,7 +48,7 @@ final class AppModel: ObservableObject {
     /// nil until the first scan, so launching the app does not notify about existing sessions.
     private var lastStatuses: [String: SessionStatus]?
     private lazy var panel: FloatingPanel = {
-        let panel = FloatingPanel(rootView: SessionListView(model: self, style: .panel))
+        let panel = FloatingPanel(rootView: Themed(surfaces: false) { SessionListView(model: self, style: .panel) })
         panel.onClose = { [weak self] in self?.panelClosed() }
         return panel
     }()

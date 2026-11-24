@@ -2,16 +2,6 @@ import AgentCore
 import SwiftUI
 
 extension SessionStatus {
-    var color: Color {
-        switch self {
-        case .waiting: Palette.orange
-        case .error: Palette.red
-        case .working: Palette.blue
-        case .done: Palette.green
-        case .idle, .untracked: Palette.textMeta
-        }
-    }
-
     var symbol: String {
         switch self {
         case .waiting: "bell.badge.fill"
@@ -65,6 +55,7 @@ struct SessionListView: View {
 
     @ObservedObject var model: AppModel
     let style: Style
+    @Environment(\.theme) private var theme
     @State private var showOtherPorts = false
     @State private var showIdle = false
     @State private var contentHeight: CGFloat = 0
@@ -126,8 +117,8 @@ struct SessionListView: View {
             if style == .menu {
                 Text("Agents").font(.headline)
             }
-            if working > 0 { CountBadge(count: working, label: "working", color: Palette.blue) }
-            if waiting > 0 { CountBadge(count: waiting, label: "need input", color: Palette.orange) }
+            if working > 0 { CountBadge(count: working, label: "working", color: theme.working) }
+            if waiting > 0 { CountBadge(count: waiting, label: "need input", color: theme.waiting) }
             Spacer()
             Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.borderless)
@@ -154,6 +145,7 @@ struct SessionListView: View {
                     Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 }
                 Divider()
+                Button("Settings…") { SettingsWindow.shared.show() }
                 Button("Quit Agent Control Center") { NSApp.terminate(nil) }
             } label: {
                 Image(systemName: "gearshape")
@@ -172,7 +164,7 @@ struct SessionListView: View {
 
     private var hookBanner: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.orange)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(theme.waiting)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Claude Code hook not set up").font(.callout.weight(.semibold))
                 Text("Sessions show up, but without their status, prompt or reply.")
@@ -184,7 +176,7 @@ struct SessionListView: View {
                 .controlSize(.small)
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Palette.orange.opacity(0.12)))
+        .background(RoundedRectangle(cornerRadius: 6).fill(theme.waiting.opacity(0.12)))
         .padding(.bottom, 4)
     }
 
@@ -284,6 +276,7 @@ private struct CountBadge: View {
 struct SessionRow: View {
     let session: Session
     @ObservedObject var model: AppModel
+    @Environment(\.theme) private var theme
     @State private var hovering = false
 
     private static let maxChips = 5
@@ -291,7 +284,7 @@ struct SessionRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: session.status.symbol)
-                .foregroundStyle(session.status.color)
+                .foregroundStyle(theme.status(session.status))
                 .symbolEffect(.pulse, isActive: session.status == .working)
                 .frame(width: 18)
                 .padding(.top, 1)
@@ -316,12 +309,12 @@ struct SessionRow: View {
                     Spacer(minLength: 4)
                     Text(statusText)
                         .font(.caption)
-                        .foregroundStyle(session.status.color)
+                        .foregroundStyle(theme.status(session.status))
                         .lineLimit(1)
                         .fixedSize()
                 }
                 if session.status == .waiting, let message = session.message {
-                    Text(message).font(.caption).foregroundStyle(Palette.orange).lineLimit(2)
+                    Text(message).font(.caption).foregroundStyle(theme.waiting).lineLimit(2)
                 }
                 if let summary = session.summary {
                     Text(summary).font(.caption).foregroundStyle(Palette.textBody).lineLimit(2).truncationMode(.tail)
@@ -330,7 +323,7 @@ struct SessionRow: View {
                     HStack(spacing: 4) {
                         Image(systemName: toolSymbol(tool))
                             .font(.caption2)
-                            .foregroundStyle(session.status.color)
+                            .foregroundStyle(theme.status(session.status))
                             .frame(width: 12)
                         Text(activity)
                             .font(.caption)
@@ -404,6 +397,7 @@ struct SessionRow: View {
 private struct PortChip: View {
     let listener: Listener
     @ObservedObject var model: AppModel
+    @Environment(\.theme) private var theme
 
     var body: some View {
         Button { model.openPort(listener) } label: {
@@ -411,8 +405,12 @@ private struct PortChip: View {
                 .font(.caption2.monospaced())
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
-                .foregroundStyle(Palette.chipText)
-                .background(Capsule().fill(Palette.chipFill(sameFolder: listener.viaCwd == true)))
+                .foregroundStyle(theme.isNative ? Palette.chipText : theme.accent)
+                .background(Capsule().fill(
+                    theme.isNative
+                        ? Palette.chipFill(sameFolder: listener.viaCwd == true)
+                        : theme.accent.opacity(listener.viaCwd == true ? 0.08 : 0.15)
+                ))
         }
         .buttonStyle(.plain)
         .help("\(listener.command) · pid \(listener.pid)\(listener.viaCwd == true ? " · same folder" : "")\nClick to open in browser")

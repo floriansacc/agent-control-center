@@ -8,21 +8,17 @@ func formatTokens(_ n: Int) -> String {
     return "\(n)"
 }
 
-/// Green below 60%, orange to 85%, red above: how close a context window or plan limit is to full.
-func usageColor(_ percent: Double) -> Color {
-    percent >= 85 ? Palette.red : percent >= 60 ? Palette.orange : Palette.green
-}
-
 /// A small horizontal gauge.
 struct UsageBar: View {
     let percent: Double
     var width: CGFloat = 54
+    @Environment(\.theme) private var theme
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(Palette.textFaint.opacity(0.3))
+            Capsule().fill(theme.textFaint.opacity(0.3))
             Capsule()
-                .fill(usageColor(percent))
+                .fill(theme.usage(percent))
                 .frame(width: max(3, width * min(percent, 100) / 100))
         }
         .frame(width: width, height: 5)
@@ -33,6 +29,7 @@ struct UsageBar: View {
 /// Model · effort · context gauge, e.g. "Opus 5.5 · high · ▓▓▓░ 62% · 124k / 200k".
 struct ContextLine: View {
     let session: Session
+    @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(spacing: 6) {
@@ -52,7 +49,7 @@ struct ContextLine: View {
             if let tokens = session.contextTokens {
                 if let percent = session.contextPercent, let size = session.contextSize {
                     UsageBar(percent: percent)
-                    Text("\(Int(percent.rounded()))%").font(.caption.monospacedDigit()).foregroundStyle(usageColor(percent))
+                    Text("\(Int(percent.rounded()))%").font(.caption.monospacedDigit()).foregroundStyle(theme.usage(percent))
                     Text("\(formatTokens(tokens)) / \(formatTokens(size))")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(Palette.textMeta)
@@ -77,6 +74,7 @@ struct ContextLine: View {
 /// "↑2 ↓1 · ● 3 staged · ✎ 5 changed", like VS Code's Source Control.
 struct GitLine: View {
     let git: GitStatus
+    @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(spacing: 8) {
@@ -97,12 +95,12 @@ struct GitLine: View {
             }
             if git.stagedCount > 0 {
                 Label("\(git.stagedCount) staged", systemImage: "circle.fill")
-                    .foregroundStyle(Palette.green)
+                    .foregroundStyle(theme.done)
                     .help(fileList("Staged", git.staged, total: git.stagedCount))
             }
             if git.changedCount > 0 {
                 Label("\(git.changedCount) changed", systemImage: "pencil")
-                    .foregroundStyle(Palette.orange)
+                    .foregroundStyle(theme.waiting)
                     .help(fileList("Changes (including new files)", git.changed, total: git.changedCount))
             }
         }
@@ -135,6 +133,7 @@ private struct CompactLabelStyle: LabelStyle {
 /// usage from the VS Code panel or the desktop app: the row says how old they are and greys out when stale.
 struct PlanUsageRow: View {
     let limits: RateLimits
+    @Environment(\.theme) private var theme
 
     /// Older than this, the numbers are shown greyed out.
     private static let staleAfter: Double = 15 * 60
@@ -145,11 +144,11 @@ struct PlanUsageRow: View {
         // Two lines: on one, the header's width (beside the title and badges) truncated the labels.
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Plan usage").font(.caption).foregroundStyle(Palette.textMeta)
+                Text("Plan usage").font(.caption).foregroundStyle(theme.textSecondary)
                 Spacer(minLength: 4)
                 Text(age < 60 ? "just now" : "\(ago(limits.updatedAt)) ago")
                     .font(.caption2)
-                    .foregroundStyle(Palette.textFaint)
+                    .foregroundStyle(theme.textFaint)
                     .help("Updated when a terminal Claude Code session gets a reply (its status line reports the usage).")
             }
             HStack(spacing: 18) {
@@ -164,11 +163,11 @@ struct PlanUsageRow: View {
 
     private func gauge(_ label: String, _ window: UsageWindow, stale: Bool) -> some View {
         HStack(spacing: 6) {
-            Text(label).font(.caption.weight(.medium)).foregroundStyle(Palette.textBody)
+            Text(label).font(.caption.weight(.medium)).foregroundStyle(theme.text)
             UsageBar(percent: window.usedPercent, width: 90)
             Text("\(Int(window.usedPercent.rounded()))%")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(usageColor(window.usedPercent))
+                .foregroundStyle(theme.usage(window.usedPercent))
         }
         // Never squeezed into "5…" / "W…": the gauges keep their natural width.
         .fixedSize()

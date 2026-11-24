@@ -5,7 +5,8 @@ import SwiftUI
 /// details. Opened from the menu bar dropdown, the right-click menu, or a session's context menu.
 ///
 /// Its content (views, model, transcript) is created when the window opens and released when it closes,
-/// so the menu bar app stays light the rest of the time. The app keeps no Dock icon while it is open.
+/// so the menu bar app stays light the rest of the time. Whether the app shows in the Dock meanwhile is a
+/// setting (AppShell).
 @MainActor
 final class ControlCenterWindow: NSObject, NSWindowDelegate {
     static let shared = ControlCenterWindow()
@@ -24,7 +25,9 @@ final class ControlCenterWindow: NSObject, NSWindowDelegate {
         } else {
             let model = ControlCenterModel(selection: key)
             self.model = model
-            let controller = NSHostingController(rootView: ControlCenterView(app: AppModel.shared, model: model))
+            let controller = NSHostingController(rootView: Themed(surfaces: true) {
+                ControlCenterView(app: AppModel.shared, model: model)
+            })
             // The SwiftUI toolbar and title go to the window.
             controller.sceneBridgingOptions = [.toolbars, .title]
             // Keep the saved frame: the hosting controller would otherwise resize the window to its ideal size.
@@ -32,6 +35,7 @@ final class ControlCenterWindow: NSObject, NSWindowDelegate {
             window.contentViewController = controller
             window.setFrame(frame, display: false)
         }
+        AppShell.shared.windowOpened(window)
         // A menu bar app is never the active app on its own: activate it, or the window opens behind others.
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -58,6 +62,7 @@ final class ControlCenterWindow: NSObject, NSWindowDelegate {
         model = nil
         // Releases the SwiftUI views and the transcript.
         window?.contentViewController = nil
+        if let window { AppShell.shared.windowClosed(window) }
     }
 }
 

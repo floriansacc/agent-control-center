@@ -10,7 +10,7 @@ struct AgentControlApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            SessionListView(model: model, style: .menu)
+            Themed(surfaces: false) { SessionListView(model: model, style: .menu) }
         } label: {
             MenuBarLabel(model: model)
         }
@@ -26,8 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.terminate(nil)
             return
         }
-        // Menu bar only, even when launched unbundled during development.
+        // Menu bar only, even when launched unbundled during development; the Dock setting may change it.
         NSApp.setActivationPolicy(.accessory)
+        AppShell.shared.installMainMenu()
+        AppShell.shared.update()
+        _ = ThemeStore.shared
 
         // UNUserNotificationCenter crashes without a bundle identifier (e.g. `swift run`).
         if Bundle.main.bundleIdentifier != nil {
@@ -43,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StatusItemMenu.shared.install()
         MenuBarAppearance.shared.attach()
         if CommandLine.arguments.contains("--control-center") { AppModel.shared.openControlCenter() }
+        if CommandLine.arguments.contains("--settings") { SettingsWindow.shared.show() }
     }
 
     /// Launching the app again (Spotlight, Finder, `open -a`) while it runs opens the Control Center.

@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Colors of the session list.
+/// The "System" theme's colors, tuned for the translucent menu window. Other themes are `ThemeColors`
+/// (Theme/ThemeStore.swift); views read the current one from the environment (`@Environment(\.theme)`).
 ///
 /// Dark mode keeps the system colors. Light mode needs its own: the menu window is translucent, so the
 /// wallpaper shows through, and the system's light-mode greys and tints (made for opaque white) wash out
@@ -10,10 +11,15 @@ import SwiftUI
 enum Palette {
     // MARK: Status tints
 
-    static let blue = adaptive(light: rgb(0x0058C4), dark: .systemBlue)
-    static let green = adaptive(light: rgb(0x1B7A32), dark: .systemGreen)
-    static let orange = adaptive(light: rgb(0xB04F00), dark: .systemOrange)
-    static let red = adaptive(light: rgb(0xC0271B), dark: .systemRed)
+    static let nsBlue = adaptiveNS(light: rgb(0x0058C4), dark: .systemBlue)
+    static let nsGreen = adaptiveNS(light: rgb(0x1B7A32), dark: .systemGreen)
+    static let nsOrange = adaptiveNS(light: rgb(0xB04F00), dark: .systemOrange)
+    static let nsRed = adaptiveNS(light: rgb(0xC0271B), dark: .systemRed)
+
+    static let blue = Color(nsColor: nsBlue)
+    static let green = Color(nsColor: nsGreen)
+    static let orange = Color(nsColor: nsOrange)
+    static let red = Color(nsColor: nsRed)
 
     // MARK: Text levels (light: black at a fixed alpha, darker with Increase contrast)
 
@@ -44,7 +50,7 @@ enum Palette {
 
     // MARK: Helpers
 
-    private static func isDark(_ appearance: NSAppearance) -> Bool {
+    static func isDark(_ appearance: NSAppearance) -> Bool {
         appearance.bestMatch(from: [.aqua, .darkAqua, .vibrantLight, .vibrantDark]).map { $0 == .darkAqua || $0 == .vibrantDark } ?? false
     }
 
@@ -57,7 +63,11 @@ enum Palette {
     }
 
     private static func adaptive(light: NSColor, dark: NSColor) -> Color {
-        Color(nsColor: NSColor(name: nil) { isDark($0) ? dark : light })
+        Color(nsColor: adaptiveNS(light: light, dark: dark))
+    }
+
+    static func adaptiveNS(light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: nil) { isDark($0) ? dark : light }
     }
 
     private static func text(light alpha: CGFloat, highContrast: CGFloat, dark: NSColor) -> Color {

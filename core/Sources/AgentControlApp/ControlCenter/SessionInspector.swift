@@ -4,6 +4,7 @@ import SwiftUI
 /// Everything known about the selected session: status, model and context, git, ports, where it runs,
 /// and the actions on it.
 struct SessionInspector: View {
+    @Environment(\.theme) private var theme
     let session: Session
     @ObservedObject var app: AppModel
 
@@ -27,14 +28,14 @@ struct SessionInspector: View {
     private var statusSection: some View {
         InspectorSection("Status") {
             HStack(spacing: 6) {
-                Image(systemName: session.status.symbol).foregroundStyle(session.status.color)
+                Image(systemName: session.status.symbol).foregroundStyle(theme.status(session.status))
                 Text(session.status.label.capitalized(with: nil)).fontWeight(.medium)
                 if let since = session.statusSince {
-                    Text("for \(ago(since))").foregroundStyle(.secondary)
+                    Text("for \(ago(since))").foregroundStyle(theme.textSecondary)
                 }
             }
             if let activity = session.activity {
-                Text(activity).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+                Text(activity).font(.callout).foregroundStyle(theme.textSecondary).lineLimit(3)
             }
         }
     }
@@ -48,7 +49,7 @@ struct SessionInspector: View {
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                        .background(Capsule().fill(theme.card))
                         .help("Reasoning effort")
                 }
             }
@@ -56,13 +57,13 @@ struct SessionInspector: View {
                 if let percent = session.contextPercent, let size = session.contextSize {
                     HStack(spacing: 8) {
                         UsageBar(percent: percent, width: 120)
-                        Text("\(Int(percent.rounded()))%").foregroundStyle(usageColor(percent)).monospacedDigit()
+                        Text("\(Int(percent.rounded()))%").foregroundStyle(theme.usage(percent)).monospacedDigit()
                     }
                     Text("\(tokens.formatted()) of \(size.formatted()) tokens in context")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.textSecondary)
                 } else {
-                    Text("\(tokens.formatted()) tokens in context").font(.caption).foregroundStyle(.secondary)
+                    Text("\(tokens.formatted()) tokens in context").font(.caption).foregroundStyle(theme.textSecondary)
                 }
             }
         }
@@ -84,10 +85,10 @@ struct SessionInspector: View {
             }
             if let git = session.git {
                 if git.isClean {
-                    Text("No changes").font(.callout).foregroundStyle(.secondary)
+                    Text("No changes").font(.callout).foregroundStyle(theme.textSecondary)
                 }
-                FileList(title: "Staged", color: Palette.green, paths: git.staged, total: git.stagedCount)
-                FileList(title: "Changes", color: Palette.orange, paths: git.changed, total: git.changedCount)
+                FileList(title: "Staged", color: theme.done, paths: git.staged, total: git.stagedCount)
+                FileList(title: "Changes", color: theme.waiting, paths: git.changed, total: git.changedCount)
             }
         }
     }
@@ -100,9 +101,9 @@ struct SessionInspector: View {
                         .buttonStyle(.link)
                         .font(.callout.monospaced())
                         .help("Open in browser")
-                    Text(listener.command).foregroundStyle(.secondary).lineLimit(1)
+                    Text(listener.command).foregroundStyle(theme.textSecondary).lineLimit(1)
                     Spacer()
-                    Text("pid \(String(listener.pid))").font(.caption).foregroundStyle(.tertiary)
+                    Text("pid \(String(listener.pid))").font(.caption).foregroundStyle(theme.textFaint)
                 }
                 .contextMenu {
                     Button("Open in Browser") { app.openPort(listener) }
@@ -144,7 +145,9 @@ struct SessionInspector: View {
     private var actions: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button { app.focus(session) } label: {
-                Label(openLabel(session), systemImage: "arrow.up.forward.app").frame(maxWidth: .infinity)
+                Label(openLabel(session), systemImage: "arrow.up.forward.app")
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(theme.isNative ? .white : theme.accentForeground)
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
@@ -160,7 +163,7 @@ struct SessionInspector: View {
             if session.pid != nil {
                 Button("Stop Session…", role: .destructive) { app.stop(session) }
                     .buttonStyle(.borderless)
-                    .foregroundStyle(Palette.red)
+                    .foregroundStyle(theme.error)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -168,6 +171,7 @@ struct SessionInspector: View {
 }
 
 private struct InspectorSection<Content: View>: View {
+    @Environment(\.theme) private var theme
     let title: String
     @ViewBuilder let content: () -> Content
 
@@ -178,13 +182,14 @@ private struct InspectorSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.textSecondary)
             content()
         }
     }
 }
 
 private struct Field<Content: View>: View {
+    @Environment(\.theme) private var theme
     let label: String
     @ViewBuilder let content: () -> Content
 
@@ -195,7 +200,7 @@ private struct Field<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.caption).foregroundStyle(.tertiary)
+            Text(label).font(.caption).foregroundStyle(theme.textFaint)
             content().font(.callout)
         }
     }
@@ -203,6 +208,7 @@ private struct Field<Content: View>: View {
 
 /// "Staged (3)" and its paths, folded past a few.
 private struct FileList: View {
+    @Environment(\.theme) private var theme
     let title: String
     let color: Color
     let paths: [String]
@@ -228,7 +234,7 @@ private struct FileList: View {
                         .font(.caption)
                 }
                 if total > paths.count, showAll || paths.count <= Self.shown {
-                    Text("… and \(total - paths.count) more").font(.caption).foregroundStyle(.tertiary)
+                    Text("… and \(total - paths.count) more").font(.caption).foregroundStyle(theme.textFaint)
                 }
             }
         }

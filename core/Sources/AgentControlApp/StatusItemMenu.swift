@@ -55,6 +55,9 @@ final class StatusItemMenu: NSObject {
             menu.addItem(item("Launch at login", on: model.launchAtLogin) { model.setLaunchAtLogin(!model.launchAtLogin) })
         }
         menu.addItem(.separator())
+        let settings = item("Settings…") { SettingsWindow.shared.show() }
+        settings.keyEquivalent = ","
+        menu.addItem(settings)
         let quit = item("Quit Agent Control Center") { NSApp.terminate(nil) }
         quit.keyEquivalent = "q"
         menu.addItem(quit)

@@ -15,10 +15,12 @@ import SwiftUI
 struct MenuBarLabel: View {
     @ObservedObject var model: AppModel
     @ObservedObject var menuBar = MenuBarAppearance.shared
+    /// The bell takes the theme's "needs input" / "error" color.
+    @ObservedObject var themes = ThemeStore.shared
 
     var body: some View {
         let counts = MenuBarCounts(model.snapshot.sessions)
-        Image(nsImage: MenuBarIconRenderer.image(counts, darkMenuBar: menuBar.isDark))
+        Image(nsImage: MenuBarIconRenderer.image(counts, darkMenuBar: menuBar.isDark, themeRevision: themes.revisionNumber))
             .accessibilityLabel(counts.accessibilityLabel)
     }
 }
@@ -112,6 +114,7 @@ enum MenuBarIconRenderer {
     private struct Key: Hashable {
         let counts: MenuBarCounts
         let darkMenuBar: Bool
+        let themeRevision: Int
     }
 
     private static var cache: [Key: NSImage] = [:]
@@ -130,10 +133,10 @@ enum MenuBarIconRenderer {
         let count: Int
     }
 
-    static func image(_ counts: MenuBarCounts, darkMenuBar: Bool) -> NSImage {
+    static func image(_ counts: MenuBarCounts, darkMenuBar: Bool, themeRevision: Int) -> NSImage {
         let colored = counts.alert != .none
-        // The template variant does not depend on the menu bar color.
-        let key = Key(counts: counts, darkMenuBar: colored && darkMenuBar)
+        // The template variant depends on neither the menu bar color nor the theme.
+        let key = Key(counts: counts, darkMenuBar: colored && darkMenuBar, themeRevision: colored ? themeRevision : 0)
         if let image = cache[key] { return image }
         if cache.count > 64 { cache.removeAll() }
 
@@ -212,7 +215,8 @@ enum MenuBarIconRenderer {
     }
 
     private static func alertColor(_ alert: MenuBarCounts.Alert, darkMenuBar: Bool) -> NSColor {
-        switch alert {
+        if let themed = ThemeStore.shared.nsColor(alert == .error ? .error : .waiting, dark: darkMenuBar) { return themed }
+        return switch alert {
         case .error: darkMenuBar ? .systemRed : NSColor(srgbRed: 0.80, green: 0.16, blue: 0.11, alpha: 1)
         default: darkMenuBar ? .systemOrange : NSColor(srgbRed: 0.85, green: 0.39, blue: 0.0, alpha: 1)
         }

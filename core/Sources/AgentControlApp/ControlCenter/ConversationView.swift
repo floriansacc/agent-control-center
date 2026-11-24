@@ -4,6 +4,7 @@ import SwiftUI
 /// The selected session's recent turns, read-only: your prompts, Claude's replies, and its tool calls folded
 /// into one line each. A banner at the bottom says what the session needs or is doing.
 struct ConversationView: View {
+    @Environment(\.theme) private var theme
     let session: Session
     let conversation: ControlCenterModel.Conversation
     @ObservedObject var app: AppModel
@@ -68,6 +69,7 @@ private enum Row: Identifiable {
 }
 
 private struct TranscriptList: View {
+    @Environment(\.theme) private var theme
     let entries: [TranscriptEntry]
     /// The last tool call without a result is still running.
     let running: Bool
@@ -123,6 +125,7 @@ private struct BottomTracker: ViewModifier {
 }
 
 private struct EntryView: View {
+    @Environment(\.theme) private var theme
     let entry: TranscriptEntry
 
     var body: some View {
@@ -134,7 +137,7 @@ private struct EntryView: View {
         case let .event(text):
             HStack(spacing: 8) {
                 VStack { Divider() }
-                Text(text).font(.caption).foregroundStyle(.secondary).fixedSize()
+                Text(text).font(.caption).foregroundStyle(theme.textSecondary).fixedSize()
                 VStack { Divider() }
             }
         case .tool:
@@ -145,6 +148,7 @@ private struct EntryView: View {
 }
 
 private struct PromptBubble: View {
+    @Environment(\.theme) private var theme
     let text: String
     let time: Double?
     @State private var showAll = false
@@ -160,7 +164,7 @@ private struct PromptBubble: View {
                     .lineLimit(long && !showAll ? 8 : nil)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.blue.opacity(0.13)))
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.bubble))
                 HStack(spacing: 8) {
                     if long {
                         Button(showAll ? "Show less" : "Show more") { showAll.toggle() }
@@ -168,7 +172,7 @@ private struct PromptBubble: View {
                     }
                     if let time {
                         Text(Date(timeIntervalSince1970: time), format: .dateTime.hour().minute())
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(theme.textFaint)
                     }
                 }
                 .font(.caption2)
@@ -182,6 +186,7 @@ private struct PromptBubble: View {
 /// A run of tool calls. Up to three show as they are; longer runs fold into one summary line
 /// ("12 steps · Bash ×5, Edit ×4…"), with the running call still visible below it.
 private struct ToolGroup: View {
+    @Environment(\.theme) private var theme
     let id: String
     let calls: [ToolCall]
     let running: Bool
@@ -201,11 +206,11 @@ private struct ToolGroup: View {
                             .font(.caption2.weight(.semibold))
                             .rotationEffect(.degrees(open ? 90 : 0))
                             .frame(width: 14)
-                        Text(summary).font(.callout).foregroundStyle(.secondary)
+                        Text(summary).font(.callout).foregroundStyle(theme.textSecondary)
                         if failures > 0 {
                             Label("\(failures)", systemImage: "xmark.circle.fill")
                                 .font(.caption)
-                                .foregroundStyle(Palette.red)
+                                .foregroundStyle(theme.error)
                                 .help("\(failures) failed")
                         }
                     }
@@ -250,6 +255,7 @@ private struct ToolGroup: View {
 /// One tool call: icon, tool, detail. A click shows the full input (the whole command, the path…).
 // TODO: show the tool's output (ToolResult.preview) under the input once outputs are part of the view.
 private struct ToolLine: View {
+    @Environment(\.theme) private var theme
     let call: ToolCall
     let running: Bool
     @Binding var expanded: Set<String>
@@ -260,21 +266,21 @@ private struct ToolLine: View {
             HStack(spacing: 6) {
                 Image(systemName: toolSymbol(call.name))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.textSecondary)
                     .frame(width: 14)
-                Text(call.label).font(.callout.weight(.medium)).foregroundStyle(.secondary)
+                Text(call.label).font(.callout.weight(.medium)).foregroundStyle(theme.textSecondary)
                 if let detail = call.detail {
                     Text(detail)
                         .font(.callout.monospaced())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 if running {
                     // Static on purpose, like every status indicator in the window (see SidebarRow).
-                    Image(systemName: "ellipsis").font(.caption).foregroundStyle(Palette.blue).help("Running")
+                    Image(systemName: "ellipsis").font(.caption).foregroundStyle(theme.working).help("Running")
                 } else if call.result?.isError == true {
-                    Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(Palette.red).help("Failed")
+                    Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(theme.error).help("Failed")
                 }
             }
             .contentShape(Rectangle())
@@ -289,7 +295,7 @@ private struct ToolLine: View {
                     .textSelection(.enabled)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))
+                    .background(RoundedRectangle(cornerRadius: 6).fill(theme.card))
                     .padding(.leading, 20)
             }
         }
@@ -298,6 +304,7 @@ private struct ToolLine: View {
 
 /// What the session needs from you or is doing now, under the conversation.
 private struct StatusBanner: View {
+    @Environment(\.theme) private var theme
     let session: Session
     @ObservedObject var app: AppModel
 
@@ -305,7 +312,7 @@ private struct StatusBanner: View {
         switch session.status {
         case .waiting, .error:
             HStack(spacing: 10) {
-                Image(systemName: session.status.symbol).foregroundStyle(session.status.color)
+                Image(systemName: session.status.symbol).foregroundStyle(theme.status(session.status))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.status == .waiting ? "Needs your input" : "Stopped with an error")
                         .font(.callout.weight(.semibold))
@@ -318,19 +325,19 @@ private struct StatusBanner: View {
                     .keyboardShortcut(.defaultAction)
             }
             .padding(12)
-            .background(session.status.color.opacity(0.12))
+            .background(theme.status(session.status).opacity(0.12))
             .overlay(alignment: .top) { Divider() }
         case .working:
             HStack(spacing: 8) {
-                Image(systemName: SessionStatus.working.symbol).foregroundStyle(Palette.blue)
+                Image(systemName: SessionStatus.working.symbol).foregroundStyle(theme.working)
                 if let activity = session.activity, let tool = session.lastTool {
-                    Image(systemName: toolSymbol(tool)).foregroundStyle(.secondary)
+                    Image(systemName: toolSymbol(tool)).foregroundStyle(theme.textSecondary)
                     Text(activity).lineLimit(1).truncationMode(.middle)
                 } else {
                     Text("Working…")
                 }
                 Spacer()
-                Text("for \(ago(session.statusSince))").foregroundStyle(.secondary).monospacedDigit()
+                Text("for \(ago(session.statusSince))").foregroundStyle(theme.textSecondary).monospacedDigit()
             }
             .font(.callout)
             .padding(.horizontal, 16)

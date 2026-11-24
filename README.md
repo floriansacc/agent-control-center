@@ -9,6 +9,14 @@ Two front-ends, one core:
 - **Menu bar app** (macOS): the icon counts running and other sessions, with an orange bell while one
   needs you; the dropdown lists sessions (long-idle ones folded away); right-click for settings; detach it
   as an always-on-top floating panel; native notifications with "Jump to session".
+  - **Control Center window** (dropdown's window button, right-click → Open Control Center, or launch the
+    app again): sessions grouped by what they need from you, the selected one's conversation (prompts,
+    replies, tool calls folded into one line each, live), and its details and actions. Read-only on
+    purpose: it tracks sessions wherever they run and sends you there to reply.
+  - **Settings** (⌘,): notifications, idle folding, Dock icon (never / while a window is open / always),
+    and themes: System (native), shadcn-style presets (Neutral, Zinc, Stone, Slate × 7 accents), and
+    custom themes with a light and a dark value per color. Import a theme by pasting CSS (shadcn v3 / v4,
+    tweakcn, Tailwind `@theme`, any CSS color variables) or from a file; export as JSON.
 - **VS Code sidebar**: the same list inside VS Code (activity bar → Agents).
 
 Per session: status, current step, last prompt / reply, model, effort, context use (tokens and % of the
@@ -87,6 +95,7 @@ first time with right-click → Open (or System Settings → Privacy & Security 
 agentctl list                 # human-readable
 agentctl snapshot --pretty    # JSON
 agentctl focus <pid|session-id>
+agentctl transcript <session-id> [-n 30]   # the session's last turns
 ```
 
 Tests: `swift test --package-path core`.

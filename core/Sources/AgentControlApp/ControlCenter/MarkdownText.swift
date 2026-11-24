@@ -3,6 +3,7 @@ import SwiftUI
 /// Renders the markdown Claude writes: paragraphs, headings, lists, quotes, fenced code, tables and rules,
 /// with inline styles (bold, italics, code, links) from Foundation's markdown parser.
 struct MarkdownText: View {
+    @Environment(\.theme) private var theme
     private let blocks: [Block]
 
     init(_ markdown: String) {
@@ -42,21 +43,21 @@ struct MarkdownText: View {
                 .padding(.top, 4)
         case let .listItem(indent, marker, text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(marker).foregroundStyle(.secondary).monospacedDigit()
+                Text(marker).foregroundStyle(theme.textSecondary).monospacedDigit()
                 Text(Self.inline(text))
             }
             .padding(.leading, CGFloat(indent) * 16)
         case let .quote(text):
             Text(Self.inline(text))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.textSecondary)
                 .padding(.leading, 10)
-                .overlay(alignment: .leading) { Rectangle().fill(.quaternary).frame(width: 3) }
+                .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 3) }
         case let .code(text):
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(text).font(.callout.monospaced()).padding(10)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))
+            .background(RoundedRectangle(cornerRadius: 6).fill(theme.card))
         case let .table(rows):
             table(rows)
         case .rule:
@@ -78,7 +79,7 @@ struct MarkdownText: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+        .background(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.border))
     }
 
     // MARK: - Parsing

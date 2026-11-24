@@ -6,10 +6,9 @@ import SwiftUI
 struct ControlCenterView: View {
     @ObservedObject var app: AppModel
     @ObservedObject var model: ControlCenterModel
+    @Environment(\.theme) private var theme
     @State private var search = ""
     @State private var showInspector = true
-    @State private var showIdle = false
-    @State private var showPorts = false
 
     private var selected: Session? {
         model.selection.flatMap { key in app.snapshot.sessions.first { $0.key == key } }
@@ -17,10 +16,13 @@ struct ControlCenterView: View {
 
     var body: some View {
         NavigationSplitView {
-            sidebar
+            SessionSidebar(app: app, model: model, search: search)
+                .searchable(text: $search, placement: .sidebar, prompt: "Filter sessions")
                 .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 400)
         } detail: {
             detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background { if !theme.isNative { theme.background.ignoresSafeArea() } }
                 .inspector(isPresented: $showInspector) {
                     Group {
                         if let session = selected {
@@ -29,9 +31,12 @@ struct ControlCenterView: View {
                             Color.clear
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background { if !theme.isNative { theme.sidebar.ignoresSafeArea() } }
                     .inspectorColumnWidth(min: 240, ideal: 290, max: 400)
                 }
         }
+        .foregroundStyle(theme.text)
         .navigationTitle(selected?.displayName ?? "Agent Control Center")
         .navigationSubtitle(selected.map(subtitle) ?? "")
         .toolbar {
@@ -51,7 +56,6 @@ struct ControlCenterView: View {
                     .help(showInspector ? "Hide details (⌥⌘I)" : "Show details (⌥⌘I)")
             }
         }
-        .background { numberShortcuts }
         .onAppear {
             app.viewAppeared()
             if model.selection == nil { model.selection = app.snapshot.sessions.first?.key }
@@ -67,7 +71,49 @@ struct ControlCenterView: View {
         }
     }
 
-    // MARK: - Sidebar
+    @ViewBuilder
+    private var detail: some View {
+        if let session = selected {
+            ConversationView(session: session, conversation: model.conversation, app: app)
+                .id(session.key)
+        } else if model.selection != nil {
+            ContentUnavailableView(
+                "Session ended",
+                systemImage: "checkmark.circle",
+                description: Text("This Claude Code session is no longer running.")
+            )
+        } else {
+            ContentUnavailableView("Select a session", systemImage: "sidebar.left")
+        }
+    }
+
+    private func subtitle(_ session: Session) -> String {
+        var parts = [session.cwd.replacingOccurrences(of: Scanner.home, with: "~")]
+        if let branch = session.branch { parts.append(branch) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// "Open in iTerm", "Open in VS Code", "Open in Claude".
+func openLabel(_ session: Session) -> String {
+    switch session.host {
+    case .iterm: "Open in iTerm"
+    case .vscodeTerminal, .vscodePanel: "Open in VS Code"
+    case .claudeDesktop: "Open in Claude"
+    case .other: "Focus Terminal"
+    }
+}
+
+/// The session list. Drawn by hand rather than with a `List`: a list's selection always uses the macOS
+/// accent color, and the theme's accent should apply. Keyboard: ↑ / ↓, Return to jump, ⌘1–9.
+private struct SessionSidebar: View {
+    @ObservedObject var app: AppModel
+    @ObservedObject var model: ControlCenterModel
+    let search: String
+    @Environment(\.theme) private var theme
+    @State private var showIdle = false
+    @State private var showPorts = false
+    @FocusState private var focused: Bool
 
     private struct Groups {
         var needsYou: [Session] = []
@@ -100,56 +146,50 @@ struct ControlCenterView: View {
             .contains { $0?.localizedCaseInsensitiveContains(query) == true }
     }
 
-    /// The sessions in sidebar order, for ⌘1–9.
-    private var ordered: [Session] {
-        let g = groups
-        return g.needsYou + g.running + g.recent + (showIdle ? g.idle : [])
+    /// The sessions in the order shown (folded ones left out), for the keyboard.
+    private func ordered(_ g: Groups) -> [Session] {
+        g.needsYou + g.running + g.recent + (showIdle ? g.idle : [])
     }
 
-    private var sidebar: some View {
+    var body: some View {
         let g = groups
-        return List(selection: $model.selection) {
-            if !app.hookInstalled {
-                Section { hookNotice }
-            }
-            section("Needs you", g.needsYou)
-            section("Running", g.running)
-            section("Recent", g.recent)
-            if !g.idle.isEmpty {
-                Section(isExpanded: $showIdle) {
-                    ForEach(g.idle) { SidebarRow(session: $0).tag($0.key) }
-                } header: {
-                    Text("Idle (\(g.idle.count))")
-                        .help("Idle for more than \(foldIdleLabel). Change it in the menu bar settings.")
-                }
-            }
-            if !app.snapshot.otherPorts.isEmpty, search.isEmpty {
-                Section(isExpanded: $showPorts) {
-                    ForEach(app.snapshot.otherPorts) { listener in
-                        PortRow(listener: listener, app: app).selectionDisabled()
+        let sessions = ordered(g)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    if !app.hookInstalled { hookNotice }
+                    section("Needs you", g.needsYou)
+                    section("Running", g.running)
+                    section("Recent", g.recent)
+                    if !g.idle.isEmpty {
+                        FoldingHeader(title: "Idle", count: g.idle.count, isExpanded: $showIdle)
+                            .help("Idle for more than \(foldIdleLabel). Change it in Settings.")
+                        if showIdle { rows(g.idle) }
                     }
-                } header: {
-                    Text("Other ports (\(app.snapshot.otherPorts.count))")
+                    if !app.snapshot.otherPorts.isEmpty, search.isEmpty {
+                        FoldingHeader(title: "Other ports", count: app.snapshot.otherPorts.count, isExpanded: $showPorts)
+                        if showPorts {
+                            ForEach(app.snapshot.otherPorts) { PortRow(listener: $0, app: app) }
+                        }
+                    }
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
             }
-        }
-        .listStyle(.sidebar)
-        .searchable(text: $search, placement: .sidebar, prompt: "Filter sessions")
-        .onKeyPress(.return) {
-            guard let session = selected else { return .ignored }
-            app.focus(session)
-            return .handled
-        }
-        .contextMenu(forSelectionType: String.self) { keys in
-            if let key = keys.first, let session = app.snapshot.sessions.first(where: { $0.key == key }) {
-                SessionActions(session: session, app: app)
-            }
-        } primaryAction: { keys in
-            // Double-click jumps to the session.
-            if let key = keys.first, let session = app.snapshot.sessions.first(where: { $0.key == key }) {
+            .focusable()
+            .focused($focused)
+            .focusEffectDisabled()
+            .onKeyPress(.upArrow) { move(-1, in: sessions, proxy) }
+            .onKeyPress(.downArrow) { move(1, in: sessions, proxy) }
+            .onKeyPress(.return) {
+                guard let session = sessions.first(where: { $0.key == model.selection }) else { return .ignored }
                 app.focus(session)
+                return .handled
             }
+            .background { numberShortcuts(sessions) }
         }
+        .foregroundStyle(theme.text)
+        .background { if !theme.isNative { theme.sidebar.ignoresSafeArea() } }
         .overlay {
             if app.snapshot.sessions.isEmpty {
                 ContentUnavailableView(
@@ -157,14 +197,14 @@ struct ControlCenterView: View {
                     systemImage: "terminal",
                     description: Text("Start `claude` in a terminal, in VS Code or in the Claude app.")
                 )
-            } else if !search.isEmpty, ordered.isEmpty, g.idle.isEmpty {
+            } else if !search.isEmpty, sessions.isEmpty, g.idle.isEmpty {
                 ContentUnavailableView.search(text: search)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let limits = app.snapshot.rateLimits {
                 VStack(spacing: 0) {
-                    Divider()
+                    theme.border.frame(height: 1)
                     PlanUsageRow(limits: limits).padding(.top, 8)
                 }
             }
@@ -174,22 +214,47 @@ struct ControlCenterView: View {
     @ViewBuilder
     private func section(_ title: String, _ sessions: [Session]) -> some View {
         if !sessions.isEmpty {
-            Section("\(title) (\(sessions.count))") {
-                ForEach(sessions) { SidebarRow(session: $0).tag($0.key) }
-            }
+            SectionHeader(title: title, count: sessions.count)
+            rows(sessions)
         }
+    }
+
+    private func rows(_ sessions: [Session]) -> some View {
+        ForEach(sessions) { session in
+            SidebarRow(session: session, selected: session.key == model.selection)
+                .id(session.key)
+                .contentShape(Rectangle())
+                .gesture(TapGesture(count: 2).onEnded { app.focus(session) })
+                .simultaneousGesture(TapGesture().onEnded {
+                    model.selection = session.key
+                    focused = true
+                })
+                .contextMenu { SessionActions(session: session, app: app) }
+        }
+    }
+
+    private func move(_ step: Int, in sessions: [Session], _ proxy: ScrollViewProxy) -> KeyPress.Result {
+        guard !sessions.isEmpty else { return .ignored }
+        let current = sessions.firstIndex { $0.key == model.selection }
+        let next = current.map { min(max($0 + step, 0), sessions.count - 1) } ?? 0
+        model.selection = sessions[next].key
+        proxy.scrollTo(sessions[next].key)
+        return .handled
     }
 
     private var hookNotice: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Claude Code hook not set up", systemImage: "exclamationmark.triangle.fill")
                 .font(.callout.weight(.semibold))
-                .foregroundStyle(Palette.orange)
-            Text("Sessions show up, but without their status or conversation.").font(.caption)
+                .foregroundStyle(theme.waiting)
+            Text("Sessions show up, but without their status or conversation.")
+                .font(.caption)
+                .foregroundStyle(theme.textSecondary)
             Button("Set Up…") { app.setUpHook() }.controlSize(.small)
         }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(theme.waiting.opacity(0.12)))
         .padding(.vertical, 4)
-        .selectionDisabled()
     }
 
     private var foldIdleLabel: String {
@@ -197,11 +262,10 @@ struct ControlCenterView: View {
     }
 
     /// ⌘1–⌘9 select the sessions in sidebar order.
-    private var numberShortcuts: some View {
+    private func numberShortcuts(_ sessions: [Session]) -> some View {
         ZStack {
             ForEach(1...9, id: \.self) { n in
                 Button("") {
-                    let sessions = ordered
                     if n <= sessions.count { model.selection = sessions[n - 1].key }
                 }
                 .keyboardShortcut(KeyEquivalent(Character(String(n))), modifiers: .command)
@@ -211,39 +275,51 @@ struct ControlCenterView: View {
         .frame(width: 0, height: 0)
         .accessibilityHidden(true)
     }
+}
 
-    // MARK: - Detail
+private struct SectionHeader: View {
+    let title: String
+    let count: Int
+    @Environment(\.theme) private var theme
 
-    @ViewBuilder
-    private var detail: some View {
-        if let session = selected {
-            ConversationView(session: session, conversation: model.conversation, app: app)
-                .id(session.key)
-        } else if model.selection != nil {
-            ContentUnavailableView(
-                "Session ended",
-                systemImage: "checkmark.circle",
-                description: Text("This Claude Code session is no longer running.")
-            )
-        } else {
-            ContentUnavailableView("Select a session", systemImage: "sidebar.left")
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Text("\(count)").monospacedDigit()
         }
-    }
-
-    private func subtitle(_ session: Session) -> String {
-        var parts = [session.cwd == Scanner.home ? "~" : session.cwd.replacingOccurrences(of: Scanner.home, with: "~")]
-        if let branch = session.branch { parts.append(branch) }
-        return parts.joined(separator: " · ")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(theme.textFaint)
+        .padding(.horizontal, 8)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
     }
 }
 
-/// "Open in iTerm", "Open in VS Code", "Open in Claude".
-func openLabel(_ session: Session) -> String {
-    switch session.host {
-    case .iterm: "Open in iTerm"
-    case .vscodeTerminal, .vscodePanel: "Open in VS Code"
-    case .claudeDesktop: "Open in Claude"
-    case .other: "Focus Terminal"
+private struct FoldingHeader: View {
+    let title: String
+    let count: Int
+    @Binding var isExpanded: Bool
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Button { isExpanded.toggle() } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                Text(title)
+                Text("\(count)").monospacedDigit()
+                Spacer()
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(theme.textFaint)
+            .padding(.horizontal, 8)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isExpanded ? "expanded" : "collapsed")
     }
 }
 
@@ -251,11 +327,16 @@ func openLabel(_ session: Session) -> String {
 /// every frame, which took the app from ~1% to ~20% CPU while a session was working.
 private struct SidebarRow: View {
     let session: Session
+    let selected: Bool
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
 
     var body: some View {
+        // On the accent-colored selection, everything takes the accent's text color.
+        let onAccent = selected ? theme.accentForeground : nil
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: session.status.symbol)
-                .foregroundStyle(session.status.color)
+                .foregroundStyle(onAccent ?? theme.status(session.status))
                 .frame(width: 16)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
@@ -264,13 +345,13 @@ private struct SidebarRow: View {
                     Spacer(minLength: 4)
                     Text(ago(session.statusSince ?? session.updatedAt))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(onAccent?.opacity(0.8) ?? theme.textSecondary)
                         .monospacedDigit()
                 }
-                if let line = line {
+                if let line {
                     Text(line)
                         .font(.caption)
-                        .foregroundStyle(session.status == .waiting || session.status == .error ? session.status.color : .secondary)
+                        .foregroundStyle(onAccent?.opacity(0.9) ?? lineColor)
                         .lineLimit(2)
                 }
                 HStack(spacing: 6) {
@@ -283,10 +364,17 @@ private struct SidebarRow: View {
                     }
                 }
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(onAccent?.opacity(0.75) ?? theme.textFaint)
             }
         }
-        .padding(.vertical, 3)
+        .foregroundStyle(onAccent ?? theme.text)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? theme.accent : hovering ? theme.text.opacity(0.06) : .clear)
+        )
+        .onHover { hovering = $0 }
         .help("\(session.cwd)\n\(session.host.label) · \(session.status.label)")
     }
 
@@ -295,21 +383,28 @@ private struct SidebarRow: View {
         if session.status == .waiting || session.status == .error, let message = session.message { return message }
         return session.activity ?? session.summary
     }
+
+    private var lineColor: Color {
+        session.status == .waiting || session.status == .error ? theme.status(session.status) : theme.textSecondary
+    }
 }
 
 private struct PortRow: View {
     let listener: Listener
     @ObservedObject var app: AppModel
+    @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(spacing: 6) {
             Text(":\(String(listener.port))").font(.caption.monospaced())
-            Text(listener.command).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(listener.command).font(.caption).foregroundStyle(theme.textSecondary).lineLimit(1)
             Spacer()
             Button { app.openPort(listener) } label: { Image(systemName: "safari") }
                 .buttonStyle(.borderless)
                 .help("Open in browser")
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
         .contextMenu {
             Button("Open in Browser") { app.openPort(listener) }
             Button("Stop \(listener.command)…") { app.stop(listener) }
