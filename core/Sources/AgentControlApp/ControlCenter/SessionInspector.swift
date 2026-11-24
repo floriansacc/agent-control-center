@@ -9,7 +9,7 @@ struct SessionInspector: View {
     @ObservedObject var app: AppModel
 
     var body: some View {
-        ScrollView {
+        ColumnScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 statusSection
                 if session.model != nil || session.contextTokens != nil { modelSection }

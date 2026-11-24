@@ -25,6 +25,7 @@ final class ControlCenterWindow: NSObject, NSWindowDelegate {
         } else {
             let model = ControlCenterModel(selection: key)
             self.model = model
+            (window as? ControlCenterNSWindow)?.onNumber = { [weak model] n in model?.selectNumber(n) ?? false }
             let controller = NSHostingController(rootView: Themed(surfaces: true) {
                 ControlCenterView(app: AppModel.shared, model: model)
             })
@@ -66,11 +67,19 @@ final class ControlCenterWindow: NSObject, NSWindowDelegate {
     }
 }
 
-/// Handles the standard shortcuts itself: a menu bar app has no visible main menu to route them.
+/// Handles ⌘1–⌘9, and the standard shortcuts while the app has no menu bar (not in the Dock).
 private final class ControlCenterNSWindow: NSWindow {
+    /// ⌘1–⌘9: selects the nth session; returns whether there was one.
+    var onNumber: ((Int) -> Bool)?
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if super.performKeyEquivalent(with: event) { return true }
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Here rather than as hidden SwiftUI buttons: those are real (invisible) buttons that caught the mouse
+        // in the middle of the sidebar.
+        if modifiers == .command, let key = event.charactersIgnoringModifiers, let n = Int(key), (1...9).contains(n) {
+            return onNumber?(n) ?? false
+        }
+        if super.performKeyEquivalent(with: event) { return true }
         guard modifiers == .command || modifiers == [.command, .shift], let key = event.charactersIgnoringModifiers?.lowercased()
         else { return false }
         let action: Selector? = switch (key, modifiers.contains(.shift)) {

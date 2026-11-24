@@ -124,7 +124,7 @@ private struct GeneralSettings: View {
     @State private var dockMode = AppShell.shared.dockMode
 
     var body: some View {
-        ScrollView {
+        ColumnScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 SettingsSection(title: "Notifications", footer: "Notifications never repeat: one per change of state.") {
                     Toggle("When a session needs input", isOn: $app.notifyOnWaiting)

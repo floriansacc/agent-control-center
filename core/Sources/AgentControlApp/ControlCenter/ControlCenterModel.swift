@@ -15,6 +15,8 @@ final class ControlCenterModel: ObservableObject {
 
     @Published var selection: String?
     @Published private(set) var conversation = Conversation.none
+    /// The sessions in sidebar order (folded ones left out), kept up to date by the sidebar.
+    var orderedKeys: [String] = []
 
     private let queue = DispatchQueue(label: "agent-control.transcript", qos: .userInitiated)
     private var reader: TranscriptReader?
@@ -28,6 +30,13 @@ final class ControlCenterModel: ObservableObject {
 
     init(selection: String?) {
         self.selection = selection
+    }
+
+    /// ⌘1–⌘9: the nth session in the sidebar.
+    func selectNumber(_ n: Int) -> Bool {
+        guard n >= 1, n <= orderedKeys.count else { return false }
+        selection = orderedKeys[n - 1]
+        return true
     }
 
     /// Follows the selected session: loads its transcript when it changes, re-reads it when the hook reports

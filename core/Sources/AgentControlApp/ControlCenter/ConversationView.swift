@@ -80,7 +80,7 @@ private struct TranscriptList: View {
     var body: some View {
         let rows = Row.build(entries)
         ScrollViewReader { proxy in
-            ScrollView {
+            ColumnScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(rows) { row in
                         switch row {

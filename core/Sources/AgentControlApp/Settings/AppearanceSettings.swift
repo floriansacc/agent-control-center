@@ -13,7 +13,7 @@ struct AppearanceSettings: View {
     private var current: Theme { store.current }
 
     var body: some View {
-        ScrollView {
+        ColumnScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 SettingsSection(title: "Mode") {
                     Picker("Appearance", selection: $store.appearance) {

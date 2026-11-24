@@ -105,7 +105,7 @@ func openLabel(_ session: Session) -> String {
 }
 
 /// The session list. Drawn by hand rather than with a `List`: a list's selection always uses the macOS
-/// accent color, and the theme's accent should apply. Keyboard: ↑ / ↓, Return to jump, ⌘1–9.
+/// accent color, and the theme's accent should apply. Keyboard: ↑ / ↓, Return to jump, ⌘1–9 (the window).
 private struct SessionSidebar: View {
     @ObservedObject var app: AppModel
     @ObservedObject var model: ControlCenterModel
@@ -155,7 +155,7 @@ private struct SessionSidebar: View {
         let g = groups
         let sessions = ordered(g)
         ScrollViewReader { proxy in
-            ScrollView {
+            ColumnScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     if !app.hookInstalled { hookNotice }
                     section("Needs you", g.needsYou)
@@ -186,7 +186,8 @@ private struct SessionSidebar: View {
                 app.focus(session)
                 return .handled
             }
-            .background { numberShortcuts(sessions) }
+            // ⌘1–9 (handled by the window) pick from this order.
+            .onChange(of: sessions.map(\.key), initial: true) { _, keys in model.orderedKeys = keys }
         }
         .foregroundStyle(theme.text)
         .background { if !theme.isNative { theme.sidebar.ignoresSafeArea() } }
@@ -261,20 +262,6 @@ private struct SessionSidebar: View {
         AppModel.foldIdleChoices.first { $0.seconds == app.foldIdleAfter }?.label ?? "a while"
     }
 
-    /// ⌘1–⌘9 select the sessions in sidebar order.
-    private func numberShortcuts(_ sessions: [Session]) -> some View {
-        ZStack {
-            ForEach(1...9, id: \.self) { n in
-                Button("") {
-                    if n <= sessions.count { model.selection = sessions[n - 1].key }
-                }
-                .keyboardShortcut(KeyEquivalent(Character(String(n))), modifiers: .command)
-            }
-        }
-        .opacity(0)
-        .frame(width: 0, height: 0)
-        .accessibilityHidden(true)
-    }
 }
 
 private struct SectionHeader: View {
@@ -300,6 +287,7 @@ private struct FoldingHeader: View {
     let count: Int
     @Binding var isExpanded: Bool
     @Environment(\.theme) private var theme
+    @State private var hovering = false
 
     var body: some View {
         Button { isExpanded.toggle() } label: {
@@ -312,13 +300,15 @@ private struct FoldingHeader: View {
                 Spacer()
             }
             .font(.caption.weight(.semibold))
-            .foregroundStyle(theme.textFaint)
+            .foregroundStyle(hovering ? theme.textSecondary : theme.textFaint)
             .padding(.horizontal, 8)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? theme.text.opacity(0.06) : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .padding(.top, 7)
         .accessibilityValue(isExpanded ? "expanded" : "collapsed")
     }
 }
@@ -393,6 +383,7 @@ private struct PortRow: View {
     let listener: Listener
     @ObservedObject var app: AppModel
     @Environment(\.theme) private var theme
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -405,6 +396,11 @@ private struct PortRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? theme.text.opacity(0.06) : .clear))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { app.openPort(listener) }
+        .help("\(listener.command) · pid \(listener.pid)\nClick to open in the browser")
         .contextMenu {
             Button("Open in Browser") { app.openPort(listener) }
             Button("Stop \(listener.command)…") { app.stop(listener) }
