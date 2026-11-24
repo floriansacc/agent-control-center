@@ -80,6 +80,11 @@ private final class ControlCenterNSWindow: NSWindow {
             return onNumber?(n) ?? false
         }
         if super.performKeyEquivalent(with: event) { return true }
+        // Without a menu bar (app not in the Dock), ⌘, has no Settings menu item to go through.
+        if modifiers == .command, event.charactersIgnoringModifiers == "," {
+            SettingsWindow.shared.show()
+            return true
+        }
         guard modifiers == .command || modifiers == [.command, .shift], let key = event.charactersIgnoringModifiers?.lowercased()
         else { return false }
         let action: Selector? = switch (key, modifiers.contains(.shift)) {

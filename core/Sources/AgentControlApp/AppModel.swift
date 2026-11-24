@@ -17,7 +17,6 @@ final class AppModel: ObservableObject {
     private static let gitInterval: TimeInterval = 10
 
     @Published private(set) var snapshot = Snapshot.empty
-    @Published private(set) var panelVisible = false
     @Published private(set) var launchAtLogin = false
     /// False until the status hook is registered in ~/.claude/settings.json (by install.sh or by the app).
     @Published private(set) var hookInstalled = true
@@ -26,6 +25,10 @@ final class AppModel: ObservableObject {
     }
     @Published var notifyOnDone: Bool {
         didSet { defaults.set(notifyOnDone, forKey: "notifyOnDone") }
+    }
+    /// Open the Control Center when the app is launched (not when it starts at login).
+    @Published var openWindowAtLaunch: Bool {
+        didSet { defaults.set(openWindowAtLaunch, forKey: "openWindowAtLaunch") }
     }
     /// Sessions idle or finished for longer than this (seconds) are folded into an "Idle" section; 0 = never.
     @Published var foldIdleAfter: Double {
@@ -47,16 +50,14 @@ final class AppModel: ObservableObject {
     private var lastGitScan = Date.distantPast
     /// nil until the first scan, so launching the app does not notify about existing sessions.
     private var lastStatuses: [String: SessionStatus]?
-    private lazy var panel: FloatingPanel = {
-        let panel = FloatingPanel(rootView: Themed(surfaces: false) { SessionListView(model: self, style: .panel) })
-        panel.onClose = { [weak self] in self?.panelClosed() }
-        return panel
-    }()
 
     private init() {
-        defaults.register(defaults: ["notifyOnWaiting": true, "notifyOnDone": false, "foldIdleAfter": 3600.0])
+        defaults.register(defaults: [
+            "notifyOnWaiting": true, "notifyOnDone": false, "foldIdleAfter": 3600.0, "openWindowAtLaunch": true,
+        ])
         notifyOnWaiting = defaults.bool(forKey: "notifyOnWaiting")
         notifyOnDone = defaults.bool(forKey: "notifyOnDone")
+        openWindowAtLaunch = defaults.bool(forKey: "openWindowAtLaunch")
         foldIdleAfter = defaults.double(forKey: "foldIdleAfter")
     }
 
@@ -90,7 +91,6 @@ final class AppModel: ObservableObject {
             }
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
-        if defaults.bool(forKey: "panelOpen") { showPanel() }
         HookSetup.refreshInstalledScript(from: Self.bundledHook)
         hookInstalled = HookSetup.isInstalled()
         refresh()
@@ -290,23 +290,6 @@ final class AppModel: ObservableObject {
         else { return }
         if let error = Focus.terminate(pid: listener.pid) { alert("Could not stop pid \(listener.pid)", error) }
         refresh()
-    }
-
-    // MARK: - Panel
-
-    func togglePanel() {
-        panelVisible ? panel.close() : showPanel()
-    }
-
-    func showPanel() {
-        panel.orderFrontRegardless()
-        panelVisible = true
-        defaults.set(true, forKey: "panelOpen")
-    }
-
-    private func panelClosed() {
-        panelVisible = false
-        defaults.set(false, forKey: "panelOpen")
     }
 
     // MARK: - Settings

@@ -153,6 +153,8 @@ private struct GeneralSettings: View {
                     }
                     .frame(maxWidth: 360)
                     .onChange(of: dockMode) { _, mode in AppShell.shared.dockMode = mode }
+                    Toggle("Open the Control Center when the app is launched", isOn: $app.openWindowAtLaunch)
+                        .help("Not when it starts at login: it then stays in the menu bar.")
                     if app.isBundled {
                         Toggle("Launch at login", isOn: Binding(get: { app.launchAtLogin }, set: { app.setLaunchAtLogin($0) }))
                     }

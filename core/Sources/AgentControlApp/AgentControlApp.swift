@@ -10,7 +10,7 @@ struct AgentControlApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Themed(surfaces: false) { SessionListView(model: model, style: .menu) }
+            Themed(surfaces: false) { SessionListView(model: model) }
         } label: {
             MenuBarLabel(model: model)
         }
@@ -19,6 +19,19 @@ struct AgentControlApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    /// Started by macOS at login (or by `install.sh`): stay in the menu bar instead of opening the window.
+    private var launchedInBackground = false
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // The launch Apple event says whether this is a login item launch; it is only readable at this point.
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let loginItem = event?.eventID == kAEOpenApplication
+            && event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        // Login items started through SMAppService do not always carry it: right after boot counts as login too.
+        launchedInBackground = loginItem || ProcessInfo.processInfo.systemUptime < 120
+            || CommandLine.arguments.contains("--background")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Used by `install.sh --uninstall` before deleting the bundle.
         if CommandLine.arguments.contains("--unregister-login-item") {
@@ -45,8 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppModel.shared.start()
         StatusItemMenu.shared.install()
         MenuBarAppearance.shared.attach()
-        if CommandLine.arguments.contains("--control-center") { AppModel.shared.openControlCenter() }
-        if CommandLine.arguments.contains("--settings") { SettingsWindow.shared.show() }
+        if CommandLine.arguments.contains("--settings") {
+            SettingsWindow.shared.show()
+        } else if CommandLine.arguments.contains("--control-center")
+            || (AppModel.shared.openWindowAtLaunch && !launchedInBackground) {
+            // Opened like a regular app (Finder, Spotlight, the Dock): show the window.
+            AppModel.shared.openControlCenter()
+        }
     }
 
     /// Launching the app again (Spotlight, Finder, `open -a`) while it runs opens the Control Center.

@@ -7,10 +7,10 @@ the ports it opened, and one click to jump to it.
 Two front-ends, one core:
 
 - **Menu bar app** (macOS): the icon counts running and other sessions, with an orange bell while one
-  needs you; the dropdown lists sessions (long-idle ones folded away); right-click for settings; detach it
-  as an always-on-top floating panel; native notifications with "Jump to session".
-  - **Control Center window** (dropdown's window button, right-click → Open Control Center, or launch the
-    app again): sessions grouped by what they need from you, the selected one's conversation (prompts,
+  needs you; the dropdown lists sessions (long-idle ones folded away); right-click for settings; native
+  notifications with "Jump to session".
+  - **Control Center window**: opens when you launch the app (not when it starts at login), and from the
+    dropdown's window button, right-click → Open Control Center, or the Dock icon: sessions grouped by what they need from you, the selected one's conversation (prompts,
     replies, tool calls folded into one line each, live), and its details and actions. Read-only on
     purpose: it tracks sessions wherever they run and sends you there to reply.
   - **Settings** (⌘,): notifications, idle folding, Dock icon (never / while a window is open / always),
@@ -36,7 +36,7 @@ hook/agent-status.sh     Claude Code hook → ~/.claude/agent-status/<session_id
 core/                    Swift package — the only place with scanning / focusing logic
   AgentCore              status files + ps + lsof → Snapshot; port attribution; iTerm/VS Code focus
   agentctl               CLI over AgentCore (bundled inside the VS Code extension)
-  AgentControlApp        SwiftUI menu bar app + floating panel
+  AgentControlApp        SwiftUI menu bar app + Control Center and Settings windows
 vscode/                  extension: UI only, calls bin/agentctl
 install.sh
 ```

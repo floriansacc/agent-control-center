@@ -162,7 +162,8 @@ install_app() {
   echo "→ Bundling $APP"
   pkill -x "$APP_EXE" 2>/dev/null || true
   bundle_app "$APP"
-  open "$APP"
+  # In the background: the menu bar icon comes back without opening the Control Center window.
+  open "$APP" --args --background
 }
 
 if [ "${1:-}" = "--uninstall" ]; then

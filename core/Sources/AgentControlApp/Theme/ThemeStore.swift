@@ -45,7 +45,7 @@ struct ThemeColors: Equatable {
         percent >= 85 ? error : percent >= 60 ? waiting : done
     }
 
-    /// For the menu dropdown and the floating panel: the theme's accent and status colors, but native text
+    /// For the menu dropdown: the theme's accent and status colors, but native text
     /// and surfaces, made for their translucent background.
     func forMenu() -> ThemeColors {
         var colors = self
@@ -145,7 +145,7 @@ extension EnvironmentValues {
 }
 
 /// Gives `content` the current theme, and re-renders it when the theme changes. Wraps every root view.
-/// `surfaces: false` (menu dropdown, floating panel) keeps native text and backgrounds.
+/// `surfaces: false` (the menu dropdown) keeps native text and backgrounds.
 struct Themed<Content: View>: View {
     @ObservedObject private var store = ThemeStore.shared
     private let surfaces: Bool

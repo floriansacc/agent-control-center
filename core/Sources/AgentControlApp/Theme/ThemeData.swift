@@ -149,7 +149,7 @@ enum ThemeToken: String, CaseIterable, Codable, CodingKeyRepresentable, Identifi
         case .accent: "Selection, buttons, links, port chips."
         case .accentForeground: "Text and icons drawn on the accent color."
         case .bubble: "The background of your prompts."
-        case .working: "Running sessions, everywhere (menu, panel, window)."
+        case .working: "Running sessions, everywhere (menu bar dropdown and windows)."
         case .waiting: "Sessions that need you, and the menu bar bell."
         case .done: "Finished sessions, low usage."
         case .error: "Errors, high usage, failed tool calls."

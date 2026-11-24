@@ -50,11 +50,9 @@ func ago(_ sec: Double?) -> String {
     }
 }
 
+/// The menu bar dropdown.
 struct SessionListView: View {
-    enum Style { case menu, panel }
-
     @ObservedObject var model: AppModel
-    let style: Style
     @Environment(\.theme) private var theme
     @State private var showOtherPorts = false
     @State private var showIdle = false
@@ -72,31 +70,23 @@ struct SessionListView: View {
                 PlanUsageRow(limits: limits)
             }
             Divider()
-            if style == .menu {
-                // Menu windows have no height to fill: size to content, scroll past the cap.
-                ScrollView { content.background(heightReader) }
-                    .frame(height: min(max(contentHeight, 60), Self.menuMaxHeight))
-            } else {
-                ScrollView { content }
-            }
+            // Menu windows have no height to fill: size to content, scroll past the cap.
+            ScrollView { content.background(heightReader) }
+                .frame(height: min(max(contentHeight, 60), Self.menuMaxHeight))
         }
         // The menu window sizes itself from the outermost frame, so the fixed width must be last:
         // an outer min-width frame made the window 300pt wide and clipped the 400pt content.
-        .frame(
-            minWidth: style == .menu ? Self.menuWidth : 300,
-            maxWidth: style == .menu ? Self.menuWidth : .infinity,
-            maxHeight: style == .menu ? nil : .infinity
-        )
+        .frame(width: Self.menuWidth)
         // Sized to the content during layout; resizes the menu window before the frame is drawn.
-        .background { if style == .menu { MenuSizeTracker(fitter: windowFitter) } }
+        .background { MenuSizeTracker(fitter: windowFitter) }
         // The menu view has a fixed height (no `maxHeight: .infinity`): SwiftUI then shrinks the window to it
         // in the same layout pass, before drawing, as it already does when growing. With a flexible height it
         // left shrinking to MenuWindowFitter, a frame late: the panel was drawn at the bottom of the
         // still-tall window for one frame (flicker).
-        .background { if style == .menu { MenuBackdrop() } }
+        .background { MenuBackdrop() }
         // Animated height changes make the window resize lag behind the content; snap instead.
         // Last, so it also covers the backdrop: an animated backdrop under snapping content flickered.
-        .transaction { if style == .menu { $0.animation = nil } }
+        .transaction { $0.animation = nil }
         .onAppear { model.viewAppeared() }
         .onDisappear { model.viewDisappeared() }
     }
@@ -114,9 +104,7 @@ struct SessionListView: View {
         let working = sessions.filter { $0.status == .working }.count
         let waiting = sessions.filter { $0.status == .waiting }.count
         return HStack(spacing: 8) {
-            if style == .menu {
-                Text("Agents").font(.headline)
-            }
+            Text("Agents").font(.headline)
             if working > 0 { CountBadge(count: working, label: "working", color: theme.working) }
             if waiting > 0 { CountBadge(count: waiting, label: "need input", color: theme.waiting) }
             Spacer()
@@ -126,13 +114,6 @@ struct SessionListView: View {
             Button { model.openControlCenter() } label: { Image(systemName: "macwindow") }
                 .buttonStyle(.borderless)
                 .help("Open Control Center")
-            if style == .menu {
-                Button { model.togglePanel() } label: {
-                    Image(systemName: model.panelVisible ? "pip.exit" : "pip.enter")
-                }
-                .buttonStyle(.borderless)
-                .help(model.panelVisible ? "Close floating panel" : "Detach as floating panel")
-            }
             Menu {
                 Toggle("Notify when input is needed", isOn: $model.notifyOnWaiting)
                 Toggle("Notify when a session finishes", isOn: $model.notifyOnDone)

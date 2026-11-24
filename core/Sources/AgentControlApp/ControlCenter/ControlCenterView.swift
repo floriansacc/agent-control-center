@@ -203,12 +203,14 @@ private struct SessionSidebar: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let limits = app.snapshot.rateLimits {
-                VStack(spacing: 0) {
-                    theme.border.frame(height: 1)
+            VStack(spacing: 0) {
+                theme.border.frame(height: 1)
+                if let limits = app.snapshot.rateLimits {
                     PlanUsageRow(limits: limits).padding(.top, 8)
                 }
+                SettingsButton()
             }
+            .background { if !theme.isNative { theme.sidebar.ignoresSafeArea() } }
         }
     }
 
@@ -262,6 +264,32 @@ private struct SessionSidebar: View {
         AppModel.foldIdleChoices.first { $0.seconds == app.foldIdleAfter }?.label ?? "a while"
     }
 
+}
+
+/// "Settings" at the foot of the sidebar.
+private struct SettingsButton: View {
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
+
+    var body: some View {
+        Button { SettingsWindow.shared.show() } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape").frame(width: 16)
+                Text("Settings")
+                Spacer()
+                Text("⌘,").font(.caption).foregroundStyle(theme.textFaint)
+            }
+            .foregroundStyle(theme.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? theme.text.opacity(0.06) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 6)
+    }
 }
 
 private struct SectionHeader: View {
