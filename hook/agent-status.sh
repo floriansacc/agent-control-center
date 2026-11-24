@@ -12,8 +12,8 @@ JQ=/usr/bin/jq
 
 input=$(cat)
 # \037 (unit separator) is not IFS whitespace, so empty fields are preserved.
-fields=$(printf '%s' "$input" | "$JQ" -r '[.session_id // "", .hook_event_name // "", .notification_type // "", .transcript_path // ""] | join("\u001f")' 2>/dev/null) || exit 0
-IFS="$(printf '\037')" read -r sid event ntype transcript <<EOF
+fields=$(printf '%s' "$input" | "$JQ" -r '[.session_id // "", .hook_event_name // "", .notification_type // "", .transcript_path // "", .agent_id // "", .source // ""] | join("\u001f")' 2>/dev/null) || exit 0
+IFS="$(printf '\037')" read -r sid event ntype transcript agent source <<EOF
 $fields
 EOF
 [ -n "$sid" ] || exit 0
@@ -22,13 +22,26 @@ case "$sid" in */*|.*) exit 0 ;; esac
 mkdir -p "$DIR" 2>/dev/null || exit 0
 file="$DIR/$sid.json"
 
+prevstatus=""
+[ -f "$file" ] && prevstatus=$("$JQ" -r '.status // ""' "$file" 2>/dev/null)
+
 case "$event" in
   SessionEnd)
     rm -f "$file"
     exit 0 ;;
   SessionStart)
+    # A compaction restarts the session under the same id, sometimes while it sits finished (Claude Code
+    # compacts idle sessions): it keeps its status.
+    [ "$source" = "compact" ] && [ -n "$prevstatus" ] && exit 0
     status=idle ;;
-  UserPromptSubmit|PreToolUse|PostToolUse|SubagentStop)
+  SubagentStop)
+    # A subagent finishing says nothing about the main turn: during it the session is already working, and
+    # Claude Code's own background agents (titles, summaries) finish *after* it, which turned finished
+    # sessions back to "working".
+    exit 0 ;;
+  UserPromptSubmit|PreToolUse|PostToolUse)
+    # Tool calls of a subagent (agent_id set) only count while the main turn runs, for the same reason.
+    if [ -n "$agent" ] && [ "$prevstatus" != "working" ] && [ "$prevstatus" != "waiting" ]; then exit 0; fi
     status=working ;;
   PermissionRequest)
     status=waiting ;;
