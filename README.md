@@ -13,6 +13,11 @@ Two front-ends, one core:
     dropdown's window button, right-click → Open Control Center, or the Dock icon: sessions grouped by what they need from you, the selected one's conversation (prompts,
     replies, tool calls folded into one line each, live), and its details and actions. Read-only on
     purpose: it tracks sessions wherever they run and sends you there to reply.
+  - **Permissions**: when a session asks permission for a tool, the window shows the full command or edit
+    with Allow / Always allow / Deny (with a reason for Claude), and the dropdown has quick Allow / Deny.
+    Claude Code's own prompt still shows: whichever is answered first wins, so a session never waits on the
+    app. Needs the hook registered with a longer timeout for PermissionRequest (`./install.sh hook`, or
+    Settings › General › Update Hook). `agentctl approve|deny <session-id>` does the same from a terminal.
   - **Settings** (⌘,): notifications, idle folding, Dock icon (never / while a window is open / always),
     and themes: System (native), shadcn-style presets (Neutral, Zinc, Stone, Slate × 7 accents), and
     custom themes with a light and a dark value per color. Import a theme by pasting CSS (shadcn v3 / v4,
@@ -96,6 +101,8 @@ agentctl list                 # human-readable
 agentctl snapshot --pretty    # JSON
 agentctl focus <pid|session-id>
 agentctl transcript <session-id> [-n 30]   # the session's last turns
+agentctl approve <session-id> [--always]   # answer a waiting permission request (app running)
+agentctl deny <session-id> [message]
 ```
 
 Tests: `swift test --package-path core`.

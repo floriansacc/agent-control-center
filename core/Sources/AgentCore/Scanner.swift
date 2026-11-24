@@ -152,6 +152,11 @@ public final class Scanner: @unchecked Sendable {
             sessions[i].git = info.status
         }
 
+        // What waiting sessions ask permission for.
+        for i in sessions.indices where sessions[i].status == .waiting {
+            if let id = sessions[i].sessionId { sessions[i].permission = Approvals.read(sessionId: id) }
+        }
+
         sessions.sort {
             ($0.status.rank, -($0.updatedAt ?? 0), $0.key) < ($1.status.rank, -($1.updatedAt ?? 0), $1.key)
         }

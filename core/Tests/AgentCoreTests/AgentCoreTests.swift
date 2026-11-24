@@ -166,6 +166,31 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent(backups[0]), encoding: .utf8), original)
     }
 
+    func testHookSetupUpgradesAnOldRegistrationForApprovals() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acc-up-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("bundle"), withIntermediateDirectories: true)
+        let settings = dir.appendingPathComponent("settings.json")
+        let script = dir.appendingPathComponent("bundle/agent-status.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: script)
+        // Registered by install.sh from the repository, before approvals: 5 s everywhere.
+        let repo = #""/repo/hook/agent-status.sh""#
+        let events = HookSetup.events.map { #""\#($0)":[{"hooks":[{"type":"command","command":\#(String(reflecting: repo)),"timeout":5}]}]"# }
+        try Data(#"{"hooks":{\#(events.joined(separator: ","))}}"#.utf8).write(to: settings)
+        XCTAssertTrue(HookSetup.isInstalled(settingsURL: settings))
+        XCTAssertFalse(HookSetup.approvalsReady(settingsURL: settings))
+
+        try HookSetup.install(bundledScript: script, settingsURL: settings, installedScript: dir.appendingPathComponent("support/agent-status.sh"))
+        XCTAssertTrue(HookSetup.approvalsReady(settingsURL: settings))
+        let hooks = try XCTUnwrap((JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as? [String: Any])?["hooks"] as? [String: [[String: Any]]])
+        func entries(_ event: String) -> [[String: Any]] { hooks[event]?.flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] } ?? [] }
+        // Updated in place: still one entry, still the repository's script.
+        XCTAssertEqual(entries("PermissionRequest").count, 1)
+        XCTAssertEqual(entries("PermissionRequest").first?["command"] as? String, repo)
+        XCTAssertEqual((entries("PermissionRequest").first?["timeout"] as? NSNumber)?.intValue, HookSetup.permissionTimeout)
+        XCTAssertEqual((entries("Stop").first?["timeout"] as? NSNumber)?.intValue, 5)
+    }
+
     func testIdleFoldingAndActivity() {
         var s = Session(key: "k", cwd: "/w", project: "w", status: .done, host: .iterm, ports: [])
         s.statusSince = 1000
@@ -318,5 +343,40 @@ final class AgentCoreTests: XCTestCase {
     func testTranscriptProjectFolderName() {
         XCTAssertEqual(Transcript.projectFolderName("/Users/me/my.app"), "-Users-me-my-app")
         XCTAssertEqual(Transcript.projectFolderName("/Users/me/Perso/agent-control-center"), "-Users-me-Perso-agent-control-center")
+    }
+
+    func testApprovalSuggestionsInWords() {
+        let labels = Approvals.describe(suggestions: [
+            ["type": "addRules", "rules": [["toolName": "Bash", "ruleContent": "npm test:*"]], "behavior": "allow", "destination": "localSettings"],
+            ["type": "setMode", "mode": "acceptEdits", "destination": "session"],
+            ["type": "addRules", "rules": [["toolName": "WebFetch"]], "destination": "userSettings"],
+        ])
+        XCTAssertEqual(labels, ["Bash(npm test:*) in this project", "Switch to accept edits mode for this session", "WebFetch everywhere"])
+    }
+
+    func testApprovalRoundTrip() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acc-approve-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        setenv("AGENT_STATUS_DIR", dir.path, 1)
+        defer { unsetenv("AGENT_STATUS_DIR") }
+        try FileManager.default.createDirectory(at: Paths.permissionsDir, withIntermediateDirectories: true)
+        // A request whose hook is waiting (this test process stands in for it), then one whose hook is gone.
+        let waiting = #"{"id":"r1","tool":"Bash","detail":"Run the tests","input":"npm test","suggestions":[],"waiter_pid":\#(getpid()),"requested_at":1}"#
+        try Data(waiting.utf8).write(to: Paths.permissionsDir.appendingPathComponent("s1.json"))
+        let request = try XCTUnwrap(Approvals.read(sessionId: "s1"))
+        XCTAssertEqual(request.input, "npm test")
+        XCTAssertTrue(request.answerable)
+
+        try Approvals.answer(sessionId: "s1", request: request, .deny(message: "Use pnpm"))
+        let answer = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: Paths.decisionsDir.appendingPathComponent("s1.json"))) as? [String: Any])
+        XCTAssertEqual(answer["id"] as? String, "r1")
+        XCTAssertEqual(answer["behavior"] as? String, "deny")
+        XCTAssertEqual(answer["message"] as? String, "Use pnpm")
+
+        let gone = #"{"id":"r2","tool":"Bash","suggestions":[],"waiter_pid":null}"#
+        try Data(gone.utf8).write(to: Paths.permissionsDir.appendingPathComponent("s2.json"))
+        let stale = try XCTUnwrap(Approvals.read(sessionId: "s2"))
+        XCTAssertFalse(stale.answerable)
+        XCTAssertThrowsError(try Approvals.answer(sessionId: "s2", request: stale, .allow))
     }
 }

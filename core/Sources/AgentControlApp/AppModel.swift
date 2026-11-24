@@ -26,6 +26,23 @@ final class AppModel: ObservableObject {
     @Published var notifyOnDone: Bool {
         didSet { defaults.set(notifyOnDone, forKey: "notifyOnDone") }
     }
+    /// Answer permission requests from the app (the hook then waits for its answer, next to Claude Code's prompt).
+    @Published var approveFromApp: Bool {
+        didSet {
+            defaults.set(approveFromApp, forKey: "approveFromApp")
+            applyApprovals()
+        }
+    }
+    /// Whether the registered hook may wait long enough for an answer (older registrations: 5 seconds).
+    @Published private(set) var approvalsReady = true {
+        didSet { if approvalsReady != oldValue { applyApprovals() } }
+    }
+
+    /// The hook waits for the app's answers only when both allow it: with a 5-second registration it would be
+    /// killed mid-wait.
+    private func applyApprovals() {
+        Approvals.setEnabled(approveFromApp && approvalsReady)
+    }
     /// Open the Control Center when the app is launched (not when it starts at login).
     @Published var openWindowAtLaunch: Bool {
         didSet { defaults.set(openWindowAtLaunch, forKey: "openWindowAtLaunch") }
@@ -54,10 +71,12 @@ final class AppModel: ObservableObject {
     private init() {
         defaults.register(defaults: [
             "notifyOnWaiting": true, "notifyOnDone": false, "foldIdleAfter": 3600.0, "openWindowAtLaunch": true,
+            "approveFromApp": true,
         ])
         notifyOnWaiting = defaults.bool(forKey: "notifyOnWaiting")
         notifyOnDone = defaults.bool(forKey: "notifyOnDone")
         openWindowAtLaunch = defaults.bool(forKey: "openWindowAtLaunch")
+        approveFromApp = defaults.bool(forKey: "approveFromApp")
         foldIdleAfter = defaults.double(forKey: "foldIdleAfter")
     }
 
@@ -93,6 +112,8 @@ final class AppModel: ObservableObject {
         }
         HookSetup.refreshInstalledScript(from: Self.bundledHook)
         hookInstalled = HookSetup.isInstalled()
+        approvalsReady = HookSetup.approvalsReady()
+        applyApprovals()
         refresh()
     }
 
@@ -112,9 +133,50 @@ final class AppModel: ObservableObject {
         do {
             try HookSetup.install(bundledScript: Self.bundledHook)
             hookInstalled = HookSetup.isInstalled()
+            approvalsReady = HookSetup.approvalsReady()
         } catch {
             alert("Could not set up the hook", error.localizedDescription)
         }
+    }
+
+    /// Registrations from before approvals give the permission hook 5 seconds: too short to wait for an answer.
+    func updateHookForApprovals() {
+        let ok = confirm(
+            "Update the Claude Code hook?",
+            "To answer permission requests from Agent Control Center, the hook's permission step may wait up to "
+                + "30 minutes for your answer (Claude Code's own prompt still shows meanwhile). This changes its "
+                + "timeout in ~/.claude/settings.json; a backup of the file is saved next to it.",
+            action: "Update"
+        )
+        guard ok else { return }
+        do {
+            try HookSetup.install(bundledScript: Self.bundledHook)
+            approvalsReady = HookSetup.approvalsReady()
+        } catch {
+            alert("Could not update the hook", error.localizedDescription)
+        }
+    }
+
+    // MARK: - Approvals
+
+    /// Answers what `session` asks permission for. Claude Code continues at once; the next scan shows it.
+    func answer(_ session: Session, _ decision: Approvals.Decision) {
+        guard let sessionId = session.sessionId, let request = session.permission else { return }
+        do {
+            try Approvals.answer(sessionId: sessionId, request: request, decision)
+        } catch {
+            alert("Could not answer", "\(error.localizedDescription) Answer it in \(session.host.label).")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { AppModel.shared.refresh() }
+    }
+
+    /// Why a request cannot be answered from the app, or nil when it can.
+    func whyNotAnswerable(_ request: PermissionRequest) -> String? {
+        if request.answerable { return nil }
+        if ["AskUserQuestion", "ExitPlanMode"].contains(request.tool) { return "Claude needs your answer in the session itself." }
+        if !approveFromApp { return "Answering from Agent Control Center is off (Settings › General)." }
+        if !approvalsReady { return "The hook needs an update to take answers from here (Settings › General)." }
+        return "Asked before Agent Control Center could answer it."
     }
 
     // MARK: - Scanning
@@ -131,6 +193,7 @@ final class AppModel: ObservableObject {
     func refresh() {
         // Cheap (one small JSON file); picks up `install.sh hook` run while the app is open.
         if !hookInstalled { hookInstalled = HookSetup.isInstalled() }
+        if !approvalsReady { approvalsReady = HookSetup.approvalsReady() }
         if scanning {
             rescanQueued = true
             return
@@ -198,7 +261,10 @@ final class AppModel: ObservableObject {
         for s in snap.sessions {
             guard let before = previous[s.key], before != s.status else { continue }
             if s.status == .waiting, notifyOnWaiting {
-                post(s, title: "\(s.displayName) needs input", body: s.message ?? "Claude is waiting for you")
+                let asks = s.permission.map { request in
+                    "Asks to use " + request.toolLabel + (request.detail.map { ": \($0)" } ?? "")
+                }
+                post(s, title: "\(s.displayName) needs input", body: asks ?? s.message ?? "Claude is waiting for you")
             } else if s.status == .done, before == .working, notifyOnDone {
                 post(s, title: "\(s.displayName) finished", body: s.lastResponse ?? s.lastPrompt ?? "Claude finished its turn")
             } else if s.status == .error, notifyOnWaiting {

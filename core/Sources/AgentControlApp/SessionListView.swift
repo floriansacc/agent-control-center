@@ -294,7 +294,9 @@ struct SessionRow: View {
                         .lineLimit(1)
                         .fixedSize()
                 }
-                if session.status == .waiting, let message = session.message {
+                if session.status == .waiting, let request = session.permission {
+                    PermissionRow(session: session, request: request, model: model)
+                } else if session.status == .waiting, let message = session.message {
                     Text(message).font(.caption).foregroundStyle(theme.waiting).lineLimit(2)
                 }
                 if let summary = session.summary {
@@ -372,6 +374,39 @@ struct SessionRow: View {
         if session.status == .untracked { lines.append("Started before the status hook was installed.") }
         lines.append("Click to jump to this session.")
         return lines.joined(separator: "\n")
+    }
+}
+
+/// In the dropdown: what a waiting session asks for, with Allow / Deny when the app can answer.
+private struct PermissionRow: View {
+    let session: Session
+    let request: PermissionRequest
+    @ObservedObject var model: AppModel
+    @Environment(\.theme) private var theme
+    @State private var sent = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: toolSymbol(request.tool)).font(.caption2).frame(width: 12)
+            Text(request.detail.map { "\(request.toolLabel) · \($0)" } ?? request.toolLabel)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            if model.whyNotAnswerable(request) == nil {
+                Button("Deny") { send(.deny(message: nil)) }
+                Button("Allow") { send(.allow) }.buttonStyle(.borderedProminent)
+            }
+        }
+        .foregroundStyle(theme.waiting)
+        .controlSize(.small)
+        .disabled(sent)
+        .help(request.input ?? request.detail ?? request.toolLabel)
+    }
+
+    private func send(_ decision: Approvals.Decision) {
+        sent = true
+        model.answer(session, decision)
     }
 }
 

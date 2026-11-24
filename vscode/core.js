@@ -19,6 +19,7 @@ const FOCUS_REQUEST = path.join(STATUS_DIR, '.focus-request');
  * @typedef {{ usedPercent: number, resetsAt?: number }} UsageWindow
  * @typedef {{ fiveHour?: UsageWindow, sevenDay?: UsageWindow, updatedAt: number }} RateLimits
  * @typedef {{ ahead?: number, behind?: number, stagedCount: number, changedCount: number, staged: string[], changed: string[] }} GitStatus
+ * @typedef {{ id: string, tool: string, detail?: string, input?: string, alwaysAllow: string[], answerable: boolean, requestedAt?: number }} PermissionRequest
  * @typedef {'working'|'waiting'|'error'|'done'|'idle'|'untracked'} Status
  * @typedef {'iterm'|'vscode-terminal'|'vscode-panel'|'claude-desktop'|'other'} Host
  * @typedef {{
@@ -27,7 +28,8 @@ const FOCUS_REQUEST = path.join(STATUS_DIR, '.focus-request');
  *   lastPrompt?: string, lastResponse?: string, lastTool?: string, toolDetail?: string, message?: string,
  *   host: Host, tty?: string, itermSessionId?: string, statusFile?: string, ports: Listener[],
  *   model?: string, effort?: string, contextTokens?: number, contextSize?: number, git?: GitStatus,
- *   customTitle?: string, aiTitle?: string, rootDir?: string, transcriptPath?: string
+ *   customTitle?: string, aiTitle?: string, rootDir?: string, transcriptPath?: string,
+ *   permission?: PermissionRequest
  * }} Session
  * @typedef {{
  *   sessions: Session[], otherPorts: Listener[], portsScanned: boolean, scannedAt: number,

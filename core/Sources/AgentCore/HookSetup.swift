@@ -37,6 +37,27 @@ public enum HookSetup {
 
     static let jqCandidates = ["/usr/bin/jq", "/opt/homebrew/bin/jq", "/usr/local/bin/jq"]
 
+    /// Seconds Claude Code lets the PermissionRequest hook wait for an answer from the app.
+    public static let permissionTimeout = 1800
+
+    /// Whether the registered PermissionRequest hook may wait long enough to take answers from the app
+    /// (registrations from before approvals used 5 seconds).
+    public static func approvalsReady(settingsURL: URL = settingsURL) -> Bool {
+        guard let data = try? Data(contentsOf: settingsURL),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let groups = (json["hooks"] as? [String: Any])?["PermissionRequest"] as? [[String: Any]]
+        else { return false }
+        for group in groups {
+            for case let hook as [String: Any] in (group["hooks"] as? [Any]) ?? [] {
+                guard (hook["command"] as? String)?.contains("agent-status.sh") == true else { continue }
+                // No timeout means Claude Code's default (60 s or more): long enough.
+                let timeout = (hook["timeout"] as? NSNumber)?.intValue ?? 60
+                return timeout >= 60
+            }
+        }
+        return false
+    }
+
     /// True when some registered hook runs an `agent-status.sh` (the repository's or the app's copy).
     public static func isInstalled(settingsURL: URL = settingsURL) -> Bool {
         guard let data = try? Data(contentsOf: settingsURL),
@@ -80,11 +101,16 @@ public enum HookSetup {
         if !fm.fileExists(atPath: settingsURL.path) { try Data("{}\n".utf8).write(to: settingsURL) }
 
         let command = "\"\(installedScript.path)\""
+        // Same transform as install.sh: PermissionRequest may wait for the app's answer (30 min), and an
+        // agent-status.sh already registered (the repository's or the app's) is updated, never doubled.
         let filter = """
         reduce ($events | split(" "))[] as $e (.;
-          .hooks[$e] = ((.hooks[$e] // [])
-            | if any(.[]; any(.hooks[]?; .command == $cmd)) then .
-              else . + [{ hooks: [{ type: "command", command: $cmd, timeout: 5 }] }] end))
+          (if $e == "PermissionRequest" then \(permissionTimeout) else 5 end) as $t
+          | .hooks[$e] = ((.hooks[$e] // [])
+            | if any(.[]; any(.hooks[]?; (.command // "") | contains("agent-status.sh")))
+              then map(if .hooks == null then . else .hooks |= map(
+                     if (.command // "") | contains("agent-status.sh") then .timeout = $t else . end) end)
+              else . + [{ hooks: [{ type: "command", command: $cmd, timeout: $t }] }] end))
         | if $statusline != "" and .statusLine == null then .statusLine = { type: "command", command: $statusline } else . end
         """
         let result = Shell.run(jq, [

@@ -11,6 +11,8 @@ usage:
                                                   JSON snapshot (contract with the VS Code extension)
   agentctl focus <pid|session-id>                 bring the session's terminal / window to the front
   agentctl transcript <session-id> [-n count]     the session's last turns (prompts, replies, tool calls)
+  agentctl approve <session-id> [--always]        allow what the session asks permission for (app running)
+  agentctl deny <session-id> [message]            deny it; the message tells Claude what to do instead
   agentctl ancestors <pid>                        JSON array: pid and its ancestors, nearest first
 """
 
@@ -101,6 +103,10 @@ case "list":
         let folder = s.displayName == s.project ? "" : "  [\(s.folderLabel)]"
         print("● \(s.displayName)\(folder)  \(parts.joined(separator: " · "))")
         if let activity = s.activity { print("    now: \(activity.prefix(90))") }
+        if let request = s.permission {
+            print("    asks: \(request.toolLabel)\(request.detail.map { " · \($0)" } ?? "")"
+                + (request.answerable ? "  (agentctl approve|deny \(s.sessionId ?? s.key))" : ""))
+        }
         if let context = contextLine(s) { print("    \(context)") }
         if let git = s.git { print("    git: \(gitLine(git))") }
         if let prompt = s.lastPrompt { print("    you: \(prompt.prefix(90))") }
@@ -142,6 +148,23 @@ case "transcript":
             print("  · \(call.label)\(call.detail.map { " \($0)" } ?? "")\(mark)")
         case let .event(text): print("\n— \(text) —")
         }
+    }
+
+case "approve", "deny":
+    guard let target = args.first else { fail("\(command) needs a session id") }
+    let snap = Scanner.shared.snapshot(ScanOptions(includePorts: false, includeGit: false))
+    guard let session = snap.sessions.first(where: { $0.sessionId == target || $0.pid.map(String.init) == target }),
+          let sessionId = session.sessionId
+    else { fail("no session matching \(target)", code: 1) }
+    guard let request = session.permission else { fail("\(session.displayName) is not waiting on a permission", code: 1) }
+    let decision: Approvals.Decision = command == "deny"
+        ? .deny(message: args.dropFirst().joined(separator: " "))
+        : args.contains("--always") ? .allowAlways : .allow
+    do {
+        try Approvals.answer(sessionId: sessionId, request: request, decision)
+        print("\(command == "deny" ? "Denied" : "Allowed"): \(request.toolLabel)\(request.detail.map { " · \($0)" } ?? "")")
+    } catch {
+        fail(error.localizedDescription + " Answer in the session itself.", code: 2)
     }
 
 case "ancestors":

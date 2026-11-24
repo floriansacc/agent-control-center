@@ -310,6 +310,9 @@ private struct StatusBanner: View {
 
     var body: some View {
         switch session.status {
+        case .waiting where session.permission != nil:
+            PermissionCard(session: session, request: session.permission!, app: app)
+                .id(session.permission!.id)
         case .waiting, .error:
             HStack(spacing: 10) {
                 Image(systemName: session.status.symbol).foregroundStyle(theme.status(session.status))

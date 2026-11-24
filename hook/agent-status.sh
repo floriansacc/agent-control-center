@@ -5,6 +5,10 @@
 # Must stay fast (it runs on every tool call), must never print to stdout
 # (SessionStart / UserPromptSubmit stdout is injected into Claude's context),
 # and must always exit 0 so it can never block a session.
+#
+# One exception to both: on PermissionRequest, while Agent Control Center is running with approvals on, it
+# waits for an answer from the app and prints it (allow / deny) for Claude Code. Claude Code shows its own
+# permission prompt at the same time; whichever answers first wins, so a session never waits on the app.
 
 DIR="${AGENT_STATUS_DIR:-$HOME/.claude/agent-status}"
 JQ=/usr/bin/jq
@@ -12,8 +16,8 @@ JQ=/usr/bin/jq
 
 input=$(cat)
 # \037 (unit separator) is not IFS whitespace, so empty fields are preserved.
-fields=$(printf '%s' "$input" | "$JQ" -r '[.session_id // "", .hook_event_name // "", .notification_type // "", .transcript_path // "", .agent_id // "", .source // ""] | join("\u001f")' 2>/dev/null) || exit 0
-IFS="$(printf '\037')" read -r sid event ntype transcript agent source <<EOF
+fields=$(printf '%s' "$input" | "$JQ" -r '[.session_id // "", .hook_event_name // "", .notification_type // "", .transcript_path // "", .agent_id // "", .source // "", .tool_name // ""] | join("\u001f")' 2>/dev/null) || exit 0
+IFS="$(printf '\037')" read -r sid event ntype transcript agent source tool <<EOF
 $fields
 EOF
 [ -n "$sid" ] || exit 0
@@ -21,13 +25,16 @@ case "$sid" in */*|.*) exit 0 ;; esac
 
 mkdir -p "$DIR" 2>/dev/null || exit 0
 file="$DIR/$sid.json"
+# The pending permission request, apart from the status file: the "permission_prompt" Notification hook
+# rewrites that one at the same moment and could drop it.
+pfile="$DIR/.permissions/$sid.json"
 
 prevstatus=""
 [ -f "$file" ] && prevstatus=$("$JQ" -r '.status // ""' "$file" 2>/dev/null)
 
 case "$event" in
   SessionEnd)
-    rm -f "$file"
+    rm -f "$file" "$pfile"
     exit 0 ;;
   SessionStart)
     # A compaction restarts the session under the same id, sometimes while it sits finished (Claude Code
@@ -56,6 +63,10 @@ case "$event" in
   *)
     exit 0 ;;
 esac
+
+# Any other event means the pending request was answered (in the terminal, the app or elsewhere); a hook
+# still waiting for the app sees its file go and stops.
+case "$event" in PermissionRequest|Notification) ;; *) rm -f "$pfile" 2>/dev/null ;; esac
 
 prev='{}'
 prevpid=""
@@ -124,20 +135,8 @@ case "$event" in
     fi ;;
 esac
 
-tmp="$file.$$.tmp"
-printf '%s' "$input" | "$JQ" -c \
-  --argjson prev "$prev" \
-  --argjson ctx "$ctx" \
-  --argjson titles "$titles" \
-  --arg status "$status" \
-  --arg event "$event" \
-  --arg now "$(date +%s)" \
-  --arg pid "$pid" \
-  --arg tty "$tty" \
-  --arg termProgram "${TERM_PROGRAM:-}" \
-  --arg itermSessionId "${ITERM_SESSION_ID:-}" \
-  --arg entrypoint "${CLAUDE_CODE_ENTRYPOINT:-}" \
-  --arg projectDir "${CLAUDE_PROJECT_DIR:-}" '
+# jq helpers shared by the status and permission programs.
+DEFS='
   # Markdown reply -> one plain line: drops fences, heading / list / quote markers, link targets,
   # bold and code marks. Underscores are kept (identifiers such as last_prompt).
   def plain:
@@ -181,6 +180,33 @@ printf '%s' "$input" | "$JQ" -c \
      else null end)
     | text | gsub("\\s+"; " ") | gsub("^ +| +$"; "") | .[0:120]
     | if . == "" then null else . end;
+  # A tool call'"'"'s input in full, for reviewing a permission request: the command, the edit as -/+ lines…
+  def lines($prefix): text | split("\n") | map($prefix + .) | join("\n");
+  def full($tool):
+    (if $tool == "Bash" then .command
+     elif $tool == "Edit" then "\(.file_path)\n\(.old_string | lines("- "))\n\(.new_string | lines("+ "))"
+     elif $tool == "MultiEdit" then
+       "\(.file_path)\n" + ([.edits[]? | "\(.old_string | lines("- "))\n\(.new_string | lines("+ "))"] | join("\n…\n"))
+     elif $tool == "Write" then "\(.file_path)\n\n\(.content | text)"
+     elif $tool == "WebFetch" then "\(.url)\n\n\(.prompt // "")"
+     else tojson end)
+    | text | .[0:8000];
+'
+
+tmp="$file.$$.tmp"
+printf '%s' "$input" | "$JQ" -c \
+  --argjson prev "$prev" \
+  --argjson ctx "$ctx" \
+  --argjson titles "$titles" \
+  --arg status "$status" \
+  --arg event "$event" \
+  --arg now "$(date +%s)" \
+  --arg pid "$pid" \
+  --arg tty "$tty" \
+  --arg termProgram "${TERM_PROGRAM:-}" \
+  --arg itermSessionId "${ITERM_SESSION_ID:-}" \
+  --arg entrypoint "${CLAUDE_CODE_ENTRYPOINT:-}" \
+  --arg projectDir "${CLAUDE_PROJECT_DIR:-}" "$DEFS"'
   ($now | tonumber) as $t
   | $prev + {
       session_id: .session_id,
@@ -234,4 +260,60 @@ printf '%s' "$input" | "$JQ" -c \
      else {} end)
 ' > "$tmp" 2>/dev/null && mv -f "$tmp" "$file"
 rm -f "$tmp" 2>/dev/null
+
+[ "$event" = "PermissionRequest" ] || exit 0
+
+# --- Permission request: record it, and wait for an answer from Agent Control Center when it is running with
+# approvals on (it writes its pid to .approvals). Tools that need the person themselves (questions, plan
+# approval) are only recorded.
+reqid="$(date +%s)-$$"
+waiter=""
+apid=$(cat "$DIR/.approvals" 2>/dev/null)
+case "$tool" in
+  AskUserQuestion|ExitPlanMode) ;;
+  *) [ -n "$apid" ] && kill -0 "$apid" 2>/dev/null && waiter=$$ ;;
+esac
+mkdir -p "$DIR/.permissions" "$DIR/.decisions" 2>/dev/null || exit 0
+printf '%s' "$input" | "$JQ" -c --arg id "$reqid" --arg waiter "$waiter" --arg now "$(date +%s)" "$DEFS"'
+  { id: $id,
+    tool: .tool_name,
+    detail: (.tool_name as $tool | (.tool_input // {}) | detail($tool)),
+    input: (.tool_name as $tool | (.tool_input // {}) | full($tool)),
+    # Claude Code'"'"'s ready-made "always allow" rules, sent back as is when chosen.
+    suggestions: (.permission_suggestions // []),
+    waiter_pid: (if $waiter != "" then ($waiter | tonumber) else null end),
+    requested_at: ($now | tonumber) }
+' > "$pfile.$$.tmp" 2>/dev/null && mv -f "$pfile.$$.tmp" "$pfile"
+rm -f "$pfile.$$.tmp" 2>/dev/null
+[ -n "$waiter" ] || exit 0
+
+decision="$DIR/.decisions/$sid.json"
+# Killed when Claude Code gives up on the hook (an answer in the terminal, the timeout): leave nothing behind.
+trap 'grep -q "\"$reqid\"" "$pfile" 2>/dev/null && rm -f "$pfile"; exit 0' INT TERM HUP
+deadline=$(( $(date +%s) + 1780 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if [ -f "$decision" ]; then
+    out=$("$JQ" -c --arg id "$reqid" --slurpfile request "$pfile" '
+      select(.id == $id)
+      | { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: (
+            if .behavior == "allow" then
+              { behavior: "allow" }
+              + (if .always == true and ($request[0].suggestions | length) > 0
+                 then { updatedPermissions: $request[0].suggestions } else {} end)
+            else
+              { behavior: "deny", message: ((.message // "") | if . == "" then "Denied from Agent Control Center" else . end) }
+            end) } }' "$decision" 2>/dev/null)
+    if [ -n "$out" ]; then
+      rm -f "$decision" "$pfile"
+      printf '%s\n' "$out"
+      exit 0
+    fi
+  fi
+  # Answered elsewhere (the next event removed the request, or a newer request replaced it), or the app quit.
+  grep -q "\"$reqid\"" "$pfile" 2>/dev/null || exit 0
+  # The request stays recorded (its waiter gone), so the app still shows what is asked if it comes back.
+  kill -0 "$apid" 2>/dev/null || exit 0
+  sleep 0.3
+done
+rm -f "$pfile" 2>/dev/null
 exit 0

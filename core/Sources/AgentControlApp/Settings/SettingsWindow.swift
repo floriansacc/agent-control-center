@@ -138,6 +138,22 @@ private struct GeneralSettings: View {
                     Toggle("When a session needs input", isOn: $app.notifyOnWaiting)
                     Toggle("When a session finishes", isOn: $app.notifyOnDone)
                 }
+                SettingsSection(
+                    title: "Permissions",
+                    footer: "Claude Code still shows its own prompt in the session: whichever you answer first wins, so a "
+                        + "session never waits on this app."
+                ) {
+                    Toggle("Answer permission requests from Agent Control Center", isOn: $app.approveFromApp)
+                    if app.approveFromApp, !app.approvalsReady {
+                        HStack {
+                            Label("The hook must wait longer for your answer (30 minutes instead of 5 seconds).",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(theme.waiting)
+                            Spacer()
+                            Button("Update Hook…") { app.updateHookForApprovals() }
+                        }
+                    }
+                }
                 SettingsSection(title: "Sessions") {
                     Picker("Fold idle sessions after", selection: $app.foldIdleAfter) {
                         ForEach(AppModel.foldIdleChoices, id: \.seconds) { Text($0.label).tag($0.seconds) }

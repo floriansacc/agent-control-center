@@ -100,6 +100,36 @@ public struct GitStatus: Codable, Sendable, Hashable {
     public var isClean: Bool { stagedCount == 0 && changedCount == 0 }
 }
 
+/// A permission request a session is waiting on, as the hook recorded it (`.permissions/<session>.json`).
+public struct PermissionRequest: Codable, Sendable, Hashable {
+    /// Identifies the request in an answer (`Approvals.answer`).
+    public var id: String
+    public var tool: String
+    /// One line, e.g. a command's description or a file name.
+    public var detail: String?
+    /// The input in full: the whole command, the edit as -/+ lines, the file to write…
+    public var input: String?
+    /// Claude Code's "always allow" options in words, e.g. "Bash(npm test:*) in this project". Empty when it
+    /// offers none.
+    public var alwaysAllow: [String]
+    /// Whether an answer from the app can still reach the session: the hook is waiting for one.
+    public var answerable: Bool
+    /// Unix seconds.
+    public var requestedAt: Double?
+
+    public init(id: String, tool: String, detail: String? = nil, input: String? = nil, alwaysAllow: [String] = [], answerable: Bool = false, requestedAt: Double? = nil) {
+        self.id = id
+        self.tool = tool
+        self.detail = detail
+        self.input = input
+        self.alwaysAllow = alwaysAllow
+        self.answerable = answerable
+        self.requestedAt = requestedAt
+    }
+
+    public var toolLabel: String { Session.toolLabel(tool) }
+}
+
 public struct Session: Codable, Sendable, Identifiable {
     public var key: String
     public var sessionId: String?
@@ -141,6 +171,8 @@ public struct Session: Codable, Sendable, Identifiable {
     public var rootDir: String?
     /// The session's conversation (JSONL), as reported by the hook.
     public var transcriptPath: String?
+    /// What it asks permission for, while it waits on one.
+    public var permission: PermissionRequest?
 
     public var id: String { key }
 
@@ -234,6 +266,15 @@ public enum Paths {
     /// Written by `Focus` to ask the VS Code window that owns a session to reveal its terminal / Claude tab.
     /// Dot-prefixed and without .json so the scanner never mistakes it for a session.
     public static var focusRequest: URL { statusDir.appendingPathComponent(".focus-request") }
+
+    /// Pending permission requests, one file per session, written by the hook.
+    public static var permissionsDir: URL { statusDir.appendingPathComponent(".permissions") }
+
+    /// Answers from the app to a waiting permission hook, one file per session.
+    public static var decisionsDir: URL { statusDir.appendingPathComponent(".decisions") }
+
+    /// Present (with the app's pid) while the app takes permission requests: the hook then waits for its answer.
+    public static var approvalsFlag: URL { statusDir.appendingPathComponent(".approvals") }
 
     /// Executable name of the menu bar app, used to detect whether it is running.
     public static let appExecutableName = "AgentControlApp"

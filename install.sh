@@ -60,11 +60,16 @@ install_hook() {
   chmod +x "$HOOK" "$STATUSLINE"
   # The status line (model, effort, context, plan usage) is added only when none is set: an existing
   # one is never replaced.
+  # PermissionRequest may wait for an answer from the app (approvals): 30 minutes instead of 5 seconds.
+  # A hook already registered (this script, or the app's copy) gets its timeout updated, not a second entry.
   update_settings '
     reduce ($events | split(" "))[] as $e (.;
-      .hooks[$e] = ((.hooks[$e] // [])
-        | if any(.[]; any(.hooks[]?; .command == $cmd)) then .
-          else . + [{ hooks: [{ type: "command", command: $cmd, timeout: 5 }] }] end))
+      (if $e == "PermissionRequest" then 1800 else 5 end) as $t
+      | .hooks[$e] = ((.hooks[$e] // [])
+        | if any(.[]; any(.hooks[]?; (.command // "") | contains("agent-status.sh")))
+          then map(if .hooks == null then . else .hooks |= map(
+                 if (.command // "") | contains("agent-status.sh") then .timeout = $t else . end) end)
+          else . + [{ hooks: [{ type: "command", command: $cmd, timeout: $t }] }] end))
     | if .statusLine == null then .statusLine = { type: "command", command: $statusline } else . end'
   if [ "$(jq -r '.statusLine.command // ""' "$SETTINGS")" != "$STATUSLINE_CMD" ]; then
     echo "  A status line is already set; kept it. Context %, effort and plan usage need ours:"

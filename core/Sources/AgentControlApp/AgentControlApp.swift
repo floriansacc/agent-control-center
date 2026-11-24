@@ -67,6 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // Waiting permission hooks stop waiting for us (they also notice the pid is gone).
+        Approvals.setEnabled(false)
+    }
+
     /// Launching the app again (Spotlight, Finder, `open -a`) while it runs opens the Control Center.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         MainActor.assumeIsolated { AppModel.shared.openControlCenter() }
