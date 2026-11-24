@@ -272,4 +272,51 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertEqual(fields, ["12", "34", "ttys001"])
         XCTAssertEqual(rest, "/a b/c d")
     }
+
+    func testTranscriptReaderBuildsTurnsAndFollowsAppends() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("s.jsonl")
+        let lines = [
+            #"{"type":"ai-title","aiTitle":"x"}"#,
+            #"{"type":"user","uuid":"u1","timestamp":"2026-11-24T05:00:00.000Z","message":{"role":"user","content":"<ide_selection>code</ide_selection>Fix the build"}}"#,
+            #"{"type":"user","uuid":"m1","isMeta":true,"message":{"role":"user","content":"injected"}}"#,
+            #"{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}"#,
+            #"{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"swift build","description":"Build it"}}]}}"#,
+            #"{"type":"user","uuid":"r1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"boom"}]}}"#,
+            #"{"type":"assistant","uuid":"s1","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"subagent"}]}}"#,
+            #"{"type":"assistant","uuid":"a3","message":{"role":"assistant","content":[{"type":"text","text":"Fixed **it**."}]}}"#,
+            #"{"type":"user","uuid":"c1","message":{"role":"user","content":"<command-name>/model</command-name><command-message>model</command-message><command-args>opus</command-args>"}}"#,
+            #"{"type":"user","uuid":"c2","message":{"role":"user","content":"<local-command-stdout>Set model</local-command-stdout>"}}"#,
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+
+        let reader = TranscriptReader(url: url)
+        XCTAssertTrue(reader.update())
+        XCTAssertEqual(reader.entries.map(\.kind), [
+            .prompt("Fix the build"),
+            .tool(ToolCall(id: "t1", name: "Bash", detail: "Build it", input: "swift build", result: ToolResult(isError: true, preview: "boom"))),
+            .reply("Fixed **it**."),
+            .prompt("/model opus"),
+        ])
+        XCTAssertEqual(reader.entries.first?.timestamp, 1_795_496_400)
+        XCTAssertFalse(reader.update())
+
+        // An appended line, then a half-written one that only counts once complete.
+        let handle = try FileHandle(forWritingTo: url)
+        handle.seekToEndOfFile()
+        handle.write(Data((#"{"type":"system","subtype":"compact_boundary","uuid":"b1"}"# + "\n" + #"{"type":"user","uuid":"u2","mess"#).utf8))
+        XCTAssertTrue(reader.update())
+        XCTAssertEqual(reader.entries.last?.kind, .event("Conversation compacted"))
+        handle.write(Data((#"age":{"role":"user","content":[{"type":"text","text":"Next"},{"type":"image"}]}}"# + "\n").utf8))
+        try handle.close()
+        XCTAssertTrue(reader.update())
+        XCTAssertEqual(reader.entries.last?.kind, .prompt("Next\n[image]"))
+    }
+
+    func testTranscriptProjectFolderName() {
+        XCTAssertEqual(Transcript.projectFolderName("/Users/me/my.app"), "-Users-me-my-app")
+        XCTAssertEqual(Transcript.projectFolderName("/Users/me/Perso/agent-control-center"), "-Users-me-Perso-agent-control-center")
+    }
 }

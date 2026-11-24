@@ -184,6 +184,8 @@ printf '%s' "$input" | "$JQ" -c \
       term_program: $termProgram,
       iterm_session_id: $itermSessionId,
       entrypoint: $entrypoint,
+      # Read by the Control Center window to show the conversation.
+      transcript_path: (.transcript_path // $prev.transcript_path),
       message: (
         if $status == "waiting" then (.message // "Waiting for permission")
         elif $status == "error" then ((.error_details // .error) | readable_error | plain | .[0:300] | select(. != "") // null)

@@ -42,6 +42,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppModel.shared.start()
         StatusItemMenu.shared.install()
         MenuBarAppearance.shared.attach()
+        if CommandLine.arguments.contains("--control-center") { AppModel.shared.openControlCenter() }
+    }
+
+    /// Launching the app again (Spotlight, Finder, `open -a`) while it runs opens the Control Center.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainActor.assumeIsolated { AppModel.shared.openControlCenter() }
+        return false
     }
 
     func userNotificationCenter(

@@ -38,6 +38,7 @@ final class StatusItemMenu: NSObject {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
+        menu.addItem(item("Open Control Center") { model.openControlCenter() })
         menu.addItem(item(model.panelVisible ? "Hide Floating Panel" : "Show Floating Panel") { model.togglePanel() })
         menu.addItem(item("Refresh") { model.refresh() })
         menu.addItem(.separator())

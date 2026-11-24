@@ -139,6 +139,8 @@ public struct Session: Codable, Sendable, Identifiable {
     public var aiTitle: String?
     /// The folder the session was started in (`cwd` follows the agent's `cd`).
     public var rootDir: String?
+    /// The session's conversation (JSONL), as reported by the hook.
+    public var transcriptPath: String?
 
     public var id: String { key }
 

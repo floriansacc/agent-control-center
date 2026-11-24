@@ -249,8 +249,28 @@ final class AppModel: ObservableObject {
     }
 
     func copyPath(_ session: Session) {
+        copy(session.cwd)
+    }
+
+    /// `cd <folder> && claude --resume <id>`: picks the conversation up again, e.g. after closing its terminal.
+    func copyResumeCommand(_ session: Session) {
+        guard let id = session.sessionId else { return }
+        let dir = session.rootDir ?? session.cwd
+        copy("cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && claude --resume \(id)")
+    }
+
+    func revealInFinder(_ session: Session) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: session.cwd)])
+    }
+
+    private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(session.cwd, forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// Opens the Control Center window, on `session` when given.
+    func openControlCenter(_ session: Session? = nil) {
+        ControlCenterWindow.shared.show(select: session?.key)
     }
 
     func openPort(_ listener: Listener) {

@@ -88,7 +88,8 @@ public final class Scanner: @unchecked Sendable {
                 contextTokens: (data["context_tokens"] as? NSNumber)?.intValue,
                 customTitle: Self.nonEmpty(data["custom_title"]),
                 aiTitle: Self.nonEmpty(data["ai_title"]),
-                rootDir: Self.nonEmpty(data["project_dir"])
+                rootDir: Self.nonEmpty(data["project_dir"]),
+                transcriptPath: Self.nonEmpty(data["transcript_path"])
             ))
         }
 
@@ -314,7 +315,7 @@ public final class Scanner: @unchecked Sendable {
         }
     }
 
-    static let home = FileManager.default.homeDirectoryForCurrentUser.path
+    public static let home = FileManager.default.homeDirectoryForCurrentUser.path
 
     static func isWithin(_ dir: String, _ child: String) -> Bool {
         child == dir || child.hasPrefix(dir.hasSuffix("/") ? dir : dir + "/")

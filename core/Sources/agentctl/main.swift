@@ -10,6 +10,7 @@ usage:
   agentctl snapshot [--no-ports] [--no-git] [--ignore a,b] [--show-ephemeral] [--pretty]
                                                   JSON snapshot (contract with the VS Code extension)
   agentctl focus <pid|session-id>                 bring the session's terminal / window to the front
+  agentctl transcript <session-id> [-n count]     the session's last turns (prompts, replies, tool calls)
   agentctl ancestors <pid>                        JSON array: pid and its ancestors, nearest first
 """
 
@@ -119,6 +120,29 @@ case "focus":
     let result = Focus.focus(session)
     print(result.rawValue)
     exit(result == .focused ? 0 : 2)
+
+case "transcript":
+    guard let target = args.first else { fail("transcript needs a session id") }
+    var count = 30
+    if let i = args.firstIndex(of: "-n"), i + 1 < args.count, let n = Int(args[i + 1]) { count = n }
+    // A live session (its reported path, or a pid), else any transcript with that id.
+    let live = Scanner.shared.snapshot(ScanOptions(includePorts: false, includeGit: false)).sessions
+        .first { $0.sessionId == target || $0.pid.map(String.init) == target }
+    guard let url = live.flatMap(Transcript.url(for:)) ?? Transcript.url(sessionId: target) else {
+        fail("no transcript for \(target)", code: 1)
+    }
+    let reader = TranscriptReader(url: url)
+    reader.update()
+    for entry in reader.entries.suffix(count) {
+        switch entry.kind {
+        case let .prompt(text): print("\nYou: \(text)")
+        case let .reply(text): print("\nClaude: \(text)")
+        case let .tool(call):
+            let mark = call.result.map { $0.isError ? " ✗" : "" } ?? " …"
+            print("  · \(call.label)\(call.detail.map { " \($0)" } ?? "")\(mark)")
+        case let .event(text): print("\n— \(text) —")
+        }
+    }
 
 case "ancestors":
     guard let raw = args.first, let pid = Int32(raw) else { fail("ancestors needs a pid") }

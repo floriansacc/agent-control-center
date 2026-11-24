@@ -132,6 +132,9 @@ struct SessionListView: View {
             Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.borderless)
                 .help("Refresh")
+            Button { model.openControlCenter() } label: { Image(systemName: "macwindow") }
+                .buttonStyle(.borderless)
+                .help("Open Control Center")
             if style == .menu {
                 Button { model.togglePanel() } label: {
                     Image(systemName: model.panelVisible ? "pip.exit" : "pip.enter")
@@ -369,6 +372,7 @@ struct SessionRow: View {
         .onTapGesture { model.focus(session) }
         .contextMenu {
             Button("Focus Terminal") { model.focus(session) }
+            Button("Show in Control Center") { model.openControlCenter(session) }
             Button("Open Folder in VS Code") { model.openFolder(session) }
             Button("Copy Path") { model.copyPath(session) }
             if session.pid != nil {
