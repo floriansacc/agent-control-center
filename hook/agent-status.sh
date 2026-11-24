@@ -136,6 +136,25 @@ printf '%s' "$input" | "$JQ" -c \
     | gsub("^ +| +$"; "");
   def text: if type == "string" then . elif . == null then "" else tostring end;
   def basename: text | split("/") | last // "";
+  # API errors arrive raw, e.g. `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is
+  # too long: …"}}`: keep only the message ("Prompt is too long: …"). The JSON may be cut off, hence the regex
+  # (whose closing quote is optional).
+  def readable_error:
+    (if type == "object" then (.error.message // .message // tojson)
+     elif type == "string" then
+       . as $s
+       | (index("{")) as $i
+       | if $i == null then $s
+         else (($s[$i:] | fromjson? | (.error.message? // .message?) | select(type == "string"))
+               // ($s | capture("\"message\"\\s*:\\s*\"(?<m>(?:[^\"\\\\]|\\\\.)*)\"?").m
+                   | ("\"" + . + "\"" | fromjson?) // .)
+               // $s)
+         end
+     else text end)
+    | text | gsub("^\\s+"; "")
+    # A bare error code such as "server_error" -> "Server error".
+    | if test("^[a-z]+(_[a-z]+)+$") then gsub("_"; " ") else . end
+    | (.[0:1] | ascii_upcase) + .[1:];
   # One line about a tool call (input: its tool_input). null when there is nothing worth showing.
   def detail($tool):
     (if $tool == "Bash" then (.description // .command)
@@ -167,7 +186,7 @@ printf '%s' "$input" | "$JQ" -c \
       entrypoint: $entrypoint,
       message: (
         if $status == "waiting" then (.message // "Waiting for permission")
-        elif $status == "error" then ((.error_details // .error) | text | plain | .[0:300] | select(. != "") // null)
+        elif $status == "error" then ((.error_details // .error) | readable_error | plain | .[0:300] | select(. != "") // null)
         else null end)
     }
   # What Claude answered at the end of the turn. Only the main agent: SubagentStop carries the
