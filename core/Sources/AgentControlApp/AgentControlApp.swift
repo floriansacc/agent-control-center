@@ -49,9 +49,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if Bundle.main.bundleIdentifier != nil {
             let center = UNUserNotificationCenter.current()
             center.delegate = self
-            let focus = UNNotificationAction(identifier: "FOCUS", title: "Jump to session", options: [.foreground])
+            let focus = UNNotificationAction(identifier: "FOCUS", title: "Jump to Session", options: [.foreground])
+            // Answers to a permission request. Allowing needs the Mac unlocked.
+            let allow = UNNotificationAction(identifier: "ALLOW", title: "Allow", options: [.authenticationRequired])
+            let always = UNNotificationAction(identifier: "ALLOW_ALWAYS", title: "Always Allow", options: [.authenticationRequired])
+            let deny = UNTextInputNotificationAction(
+                identifier: "DENY", title: "Deny…", options: [],
+                textInputButtonTitle: "Deny", textInputPlaceholder: "Reason for Claude (optional)"
+            )
             center.setNotificationCategories([
                 UNNotificationCategory(identifier: AppModel.notificationCategory, actions: [focus], intentIdentifiers: []),
+                UNNotificationCategory(identifier: AppModel.permissionCategory, actions: [allow, deny, focus], intentIdentifiers: []),
+                UNNotificationCategory(identifier: AppModel.permissionAlwaysCategory, actions: [allow, always, deny, focus], intentIdentifiers: []),
             ])
             center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
@@ -91,10 +100,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let key = response.notification.request.content.userInfo["key"] as? String
+        let info = response.notification.request.content.userInfo
+        let key = info["key"] as? String
+        let requestId = info["requestId"] as? String
+        let action = response.actionIdentifier
+        let reason = (response as? UNTextInputNotificationResponse)?.userText
         Task { @MainActor in
-            if let key { AppModel.shared.focus(key: key) }
-            completionHandler()
+            defer { completionHandler() }
+            guard let key else { return }
+            let model = AppModel.shared
+            switch action {
+            case "ALLOW", "ALLOW_ALWAYS", "DENY":
+                guard let requestId else { return }
+                let decision: Approvals.Decision = switch action {
+                case "ALLOW": .allow
+                case "ALLOW_ALWAYS": .allowAlways
+                default: .deny(message: reason?.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                model.answerFromNotification(key: key, requestId: requestId, decision)
+            case UNNotificationDefaultActionIdentifier where requestId != nil:
+                // A click on a permission request: its card in the Control Center, to review it in full.
+                model.openControlCenter(key: key)
+            default:
+                model.focus(key: key)
+            }
         }
     }
 }

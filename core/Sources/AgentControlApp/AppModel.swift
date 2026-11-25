@@ -8,6 +8,9 @@ import UserNotifications
 final class AppModel: ObservableObject {
     static let shared = AppModel()
     static let notificationCategory = "SESSION"
+    /// Permission requests the app can answer, without / with an "always allow" rule to offer.
+    static let permissionCategory = "PERMISSION"
+    static let permissionAlwaysCategory = "PERMISSION_ALWAYS"
 
     /// Scan cadence; hook status changes also trigger an immediate scan through the directory watcher.
     private static let interval: TimeInterval = 3
@@ -67,6 +70,8 @@ final class AppModel: ObservableObject {
     private var lastGitScan = Date.distantPast
     /// nil until the first scan, so launching the app does not notify about existing sessions.
     private var lastStatuses: [String: SessionStatus]?
+    /// The permission request each session's notification shows (session key → request id).
+    private var notifiedRequests: [String: String] = [:]
 
     private init() {
         defaults.register(defaults: [
@@ -170,6 +175,20 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { AppModel.shared.refresh() }
     }
 
+    /// A notification button: answers only the request it was shown for, if it is still waiting.
+    func answerFromNotification(key: String, requestId: String, _ decision: Approvals.Decision) {
+        guard let session = snapshot.sessions.first(where: { $0.key == key }),
+              let request = session.permission, request.id == requestId, request.answerable
+        else {
+            let content = UNMutableNotificationContent()
+            content.title = "Not sent"
+            content.body = "That request was already answered, or can no longer be answered from here."
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "\(key)-stale", content: content, trigger: nil))
+            return
+        }
+        answer(session, decision)
+    }
+
     /// Why a request cannot be answered from the app, or nil when it can.
     func whyNotAnswerable(_ request: PermissionRequest) -> String? {
         if request.answerable { return nil }
@@ -257,20 +276,59 @@ final class AppModel: ObservableObject {
     private func notifyTransitions(_ snap: Snapshot) {
         let previous = lastStatuses
         lastStatuses = Dictionary(snap.sessions.map { ($0.key, $0.status) }, uniquingKeysWith: { a, _ in a })
-        guard let previous, isBundled else { return }
+        guard isBundled else { return }
+        let center = UNUserNotificationCenter.current()
+        // Requests answered (anywhere) or sessions gone: their notification goes, its buttons would do nothing.
+        let pending = Dictionary(
+            snap.sessions.compactMap { s in s.status == .waiting ? s.permission.map { (s.key, $0.id) } : nil },
+            uniquingKeysWith: { a, _ in a }
+        )
+        let answered = notifiedRequests.filter { pending[$0.key] != $0.value }.map(\.key)
+        if !answered.isEmpty { center.removeDeliveredNotifications(withIdentifiers: answered) }
+        for key in answered { notifiedRequests[key] = nil }
+        // First scan: existing requests are not news.
+        guard let previous else {
+            notifiedRequests = pending
+            return
+        }
         for s in snap.sessions {
-            guard let before = previous[s.key], before != s.status else { continue }
-            if s.status == .waiting, notifyOnWaiting {
-                let asks = s.permission.map { request in
-                    "Asks to use " + request.toolLabel + (request.detail.map { ": \($0)" } ?? "")
-                }
-                post(s, title: "\(s.displayName) needs input", body: asks ?? s.message ?? "Claude is waiting for you")
+            let before = previous[s.key]
+            // A new permission request, possibly found a scan after the status turned to waiting (the hook writes
+            // it just after): it replaces the generic "needs input" notification, silently then.
+            if s.status == .waiting, let request = s.permission, notifiedRequests[s.key] != request.id {
+                let upgrade = before == .waiting && notifiedRequests[s.key] == nil
+                notifiedRequests[s.key] = request.id
+                // Also for a session seen for the first time (it may already be waiting when first scanned).
+                if notifyOnWaiting { postPermission(s, request, sound: !upgrade) }
+                continue
+            }
+            guard let before, before != s.status else { continue }
+            if s.status == .waiting, s.permission == nil, notifyOnWaiting {
+                post(s, title: "\(s.displayName) needs input", body: s.message ?? "Claude is waiting for you")
             } else if s.status == .done, before == .working, notifyOnDone {
                 post(s, title: "\(s.displayName) finished", body: s.lastResponse ?? s.lastPrompt ?? "Claude finished its turn")
             } else if s.status == .error, notifyOnWaiting {
                 post(s, title: "\(s.displayName) stopped with an error", body: s.message ?? s.lastResponse ?? s.lastPrompt ?? "")
             }
         }
+    }
+
+    /// "<session> asks to use Bash", Claude's description, then the command itself, with Allow / Deny buttons when
+    /// the app can answer.
+    private func postPermission(_ s: Session, _ request: PermissionRequest, sound: Bool) {
+        let content = UNMutableNotificationContent()
+        content.title = "\(s.displayName) asks to use \(request.toolLabel)"
+        content.subtitle = request.detail ?? s.host.label
+        // The input itself (what Allow would let run), cut to what a notification shows.
+        let input = (request.input ?? request.detail ?? "Claude needs your permission")
+            .split(separator: "\n", omittingEmptySubsequences: false).prefix(6).joined(separator: "\n")
+        content.body = String(input.prefix(300))
+        if sound { content.sound = .default }
+        content.categoryIdentifier = !request.answerable
+            ? Self.notificationCategory
+            : request.alwaysAllow.isEmpty ? Self.permissionCategory : Self.permissionAlwaysCategory
+        content.userInfo = ["key": s.key, "requestId": request.id]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: s.key, content: content, trigger: nil))
     }
 
     private func post(_ s: Session, title: String, body: String) {
@@ -287,6 +345,10 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - Actions
+
+    func openControlCenter(key: String) {
+        ControlCenterWindow.shared.show(select: key)
+    }
 
     func focus(key: String) {
         if let s = snapshot.sessions.first(where: { $0.key == key }) { focus(s) }
