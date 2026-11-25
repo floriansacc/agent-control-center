@@ -33,7 +33,8 @@ struct ControlCenterView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background { if !theme.isNative { theme.sidebar.ignoresSafeArea() } }
-                    .inspectorColumnWidth(min: 240, ideal: 290, max: 400)
+                    // Wide enough to read diffs in the Changes tab when dragged out.
+                    .inspectorColumnWidth(min: 240, ideal: 320, max: 900)
                 }
         }
         .foregroundStyle(theme.text)

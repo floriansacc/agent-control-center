@@ -1,29 +1,60 @@
 import AgentCore
 import SwiftUI
 
-/// Everything known about the selected session: status, model and context, git, ports, where it runs,
-/// and the actions on it.
+/// The selected session's panel, in two tabs. Details: status, model and context, git, ports, where it runs,
+/// and the actions on it. Changes: its changed files and the selected one's diff.
 struct SessionInspector: View {
+    enum Tab: Hashable { case details, changes }
+
     @Environment(\.theme) private var theme
     let session: Session
     @ObservedObject var app: AppModel
-    /// The changed file whose diff is open.
-    @State private var diffTarget: DiffTarget?
+    @State private var tab = Tab.details
+    /// The file whose diff the Changes tab shows.
+    @State private var selectedFile: DiffTarget?
 
     var body: some View {
-        ColumnScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                statusSection
-                if session.model != nil || session.contextTokens != nil { modelSection }
-                if session.branch != nil || session.git != nil { gitSection }
-                if !session.ports.isEmpty { portsSection }
-                sessionSection
-                actions
+        VStack(spacing: 0) {
+            Picker("Panel", selection: $tab) {
+                Text("Details").tag(Tab.details)
+                Text(changesTitle).tag(Tab.changes)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            switch tab {
+            case .details:
+                ColumnScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        statusSection
+                        if session.model != nil || session.contextTokens != nil { modelSection }
+                        if session.branch != nil || session.git != nil { gitSection }
+                        if !session.ports.isEmpty { portsSection }
+                        sessionSection
+                        actions
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            case .changes:
+                ChangesTab(session: session, selection: $selectedFile)
+            }
         }
-        .sheet(item: $diffTarget) { DiffSheet(target: $0) }
+        // Another session: its own files.
+        .onChange(of: session.key) { _, _ in selectedFile = nil }
+    }
+
+    private var changesTitle: String {
+        let count = (session.git?.stagedCount ?? 0) + (session.git?.changedCount ?? 0)
+        return count > 0 ? "Changes \(count)" : "Changes"
+    }
+
+    /// From the Details tab's Git section: that file's diff in the Changes tab.
+    private func showDiff(_ path: String, staged: Bool) {
+        selectedFile = DiffTarget(dir: session.cwd, path: path, staged: staged)
+        tab = .changes
     }
 
     // MARK: - Sections
@@ -91,10 +122,10 @@ struct SessionInspector: View {
                     Text("No changes").font(.callout).foregroundStyle(theme.textSecondary)
                 }
                 FileList(title: "Staged", color: theme.done, paths: git.staged, total: git.stagedCount) {
-                    diffTarget = DiffTarget(dir: session.cwd, path: $0, staged: true)
+                    showDiff($0, staged: true)
                 }
                 FileList(title: "Changes", color: theme.waiting, paths: git.changed, total: git.changedCount) {
-                    diffTarget = DiffTarget(dir: session.cwd, path: $0, staged: false)
+                    showDiff($0, staged: false)
                 }
             }
         }
@@ -268,5 +299,106 @@ private struct FileRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help("\(path)\nClick to see the diff")
+    }
+}
+
+/// The Changes tab: the changed files, staged first, and the selected one's diff below.
+private struct ChangesTab: View {
+    let session: Session
+    @Binding var selection: DiffTarget?
+    @Environment(\.theme) private var theme
+
+    private static let rowHeight: CGFloat = 20
+    private static let maxListHeight: CGFloat = 220
+
+    var body: some View {
+        if let git = session.git, !git.isClean {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        group("Staged", git.staged, total: git.stagedCount, staged: true, color: theme.done)
+                        group("Changes", git.changed, total: git.changedCount, staged: false, color: theme.waiting)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                }
+                .frame(height: listHeight(git))
+                theme.border.frame(height: 1)
+                if let selection {
+                    DiffView(target: selection, reloadKey: git.hashValue)
+                } else {
+                    ContentUnavailableView("Select a file", systemImage: "doc.text.magnifyingglass")
+                }
+            }
+            .onAppear { if selection == nil { selection = first(git) } }
+        } else {
+            ContentUnavailableView(
+                "No changes",
+                systemImage: "checkmark.circle",
+                description: Text(session.git == nil ? "This folder is not in a git repository." : "The working tree is clean.")
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func group(_ title: String, _ paths: [String], total: Int, staged: Bool, color: Color) -> some View {
+        if total > 0 {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("\(title) \(total)").font(.caption.weight(.semibold)).foregroundStyle(color).padding(.bottom, 2)
+                ForEach(paths, id: \.self) { path in
+                    let target = DiffTarget(dir: session.cwd, path: path, staged: staged)
+                    ChangeRow(path: path, selected: selection == target) { selection = target }
+                }
+                if total > paths.count {
+                    Text("… and \(total - paths.count) more").font(.caption).foregroundStyle(theme.textFaint)
+                }
+            }
+        }
+    }
+
+    /// Fits the files, up to a cap that leaves most of the height to the diff.
+    private func listHeight(_ git: GitStatus) -> CGFloat {
+        let groups = (git.stagedCount > 0 ? 1 : 0) + (git.changedCount > 0 ? 1 : 0)
+        let rows = git.staged.count + git.changed.count
+        return min(CGFloat(rows) * Self.rowHeight + CGFloat(groups) * 22 + 12, Self.maxListHeight)
+    }
+
+    private func first(_ git: GitStatus) -> DiffTarget? {
+        if let path = git.staged.first { return DiffTarget(dir: session.cwd, path: path, staged: true) }
+        return git.changed.first.map { DiffTarget(dir: session.cwd, path: $0, staged: false) }
+    }
+}
+
+/// A file in the Changes tab: its name first (the part that tells files apart), then its folder.
+private struct ChangeRow: View {
+    let path: String
+    let selected: Bool
+    let action: () -> Void
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text((path as NSString).lastPathComponent).lineLimit(1)
+                Text((path as NSString).deletingLastPathComponent)
+                    .foregroundStyle(selected ? theme.accentForeground.opacity(0.75) : theme.textFaint)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                Spacer(minLength: 0)
+            }
+            .font(.caption)
+            .foregroundStyle(selected ? theme.accentForeground : theme.text)
+            .padding(.horizontal, 6)
+            .frame(height: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(selected ? theme.accent : hovering ? theme.text.opacity(0.07) : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(path)
     }
 }

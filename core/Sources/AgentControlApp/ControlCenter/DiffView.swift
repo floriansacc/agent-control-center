@@ -14,10 +14,11 @@ struct DiffTarget: Identifiable, Hashable {
 
 /// One file's `git diff`, read-only: line numbers before and after, removed lines in the error color, added
 /// ones in the done color, like the permission card's edits.
-struct DiffSheet: View {
+struct DiffView: View {
     let target: DiffTarget
+    /// Changes when the session's git status does: the diff is read again.
+    var reloadKey: Int = 0
     @Environment(\.theme) private var theme
-    @Environment(\.dismiss) private var dismiss
     @State private var diff: FileDiff?
     @State private var failed = false
 
@@ -27,39 +28,29 @@ struct DiffSheet: View {
             theme.border.frame(height: 1)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(theme.isNative ? Color(nsColor: .textBackgroundColor) : theme.background)
         }
-        .frame(minWidth: 640, idealWidth: 860, minHeight: 360, idealHeight: 620)
-        .foregroundStyle(theme.text)
-        .task(id: target) { await load() }
+        .task(id: "\(target.id)|\(reloadKey)") { await load() }
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "doc.text").foregroundStyle(theme.textSecondary)
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text((target.path as NSString).lastPathComponent).font(.headline)
+                Text((target.path as NSString).lastPathComponent).font(.callout.weight(.semibold)).lineLimit(1)
                 let folder = (target.path as NSString).deletingLastPathComponent
                 if !folder.isEmpty {
                     Text(folder).font(.caption).foregroundStyle(theme.textSecondary).lineLimit(1).truncationMode(.head)
                 }
             }
-            Text(target.staged ? "Staged" : "Changes")
-                .font(.caption.weight(.medium))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Capsule().fill((target.staged ? theme.done : theme.waiting).opacity(0.15)))
-                .foregroundStyle(target.staged ? theme.done : theme.waiting)
-            Spacer()
+            .help(target.path)
+            Spacer(minLength: 4)
             if let diff, !diff.isBinary {
                 Text("+\(diff.added)").foregroundStyle(theme.done)
                 Text("−\(diff.removed)").foregroundStyle(theme.error)
             }
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.cancelAction)
         }
-        .font(.callout.monospacedDigit())
-        .padding(14)
+        .font(.caption.monospacedDigit())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -84,8 +75,7 @@ struct DiffSheet: View {
     private func lines(_ diff: FileDiff) -> some View {
         // Wide enough for the largest line number.
         let largest = diff.lines.map { max($0.oldNumber ?? 0, $0.newNumber ?? 0) }.max() ?? 0
-        let digits = String(max(largest, 99)).count
-        let numberWidth = CGFloat(digits) * 8 + 8
+        let numberWidth = CGFloat(String(max(largest, 9)).count) * 7 + 6
         // Every line at least as wide as the view, so the added / removed backgrounds line up on the right.
         return GeometryReader { geo in
             ScrollView([.vertical, .horizontal]) {
@@ -101,7 +91,7 @@ struct DiffSheet: View {
                             .padding(12)
                     }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
                 .frame(minWidth: geo.size.width, alignment: .leading)
                 .textSelection(.enabled)
             }
@@ -113,6 +103,7 @@ struct DiffSheet: View {
         let result = await Task.detached(priority: .userInitiated) {
             GitDiff.diff(in: target.dir, path: target.path, staged: target.staged)
         }.value
+        guard !Task.isCancelled else { return }
         diff = result
         failed = result == nil
     }
@@ -128,15 +119,15 @@ private struct DiffLineView: View {
             number(line.oldNumber)
             number(line.newNumber)
             Text(marker)
-                .frame(width: 18)
+                .frame(width: 14)
                 .foregroundStyle(markerColor)
             Text(line.text.isEmpty ? " " : line.text)
                 .foregroundStyle(textColor)
                 .fixedSize()
             Spacer(minLength: 12)
         }
-        .font(.system(.callout, design: .monospaced))
-        .padding(.vertical, line.kind == .hunk ? 4 : 0.5)
+        .font(.system(.caption, design: .monospaced))
+        .padding(.vertical, line.kind == .hunk ? 3 : 0.5)
         .background(background)
     }
 
@@ -144,7 +135,7 @@ private struct DiffLineView: View {
         Text(n.map(String.init) ?? "")
             .foregroundStyle(theme.textFaint)
             .frame(width: numberWidth, alignment: .trailing)
-            .padding(.trailing, 6)
+            .padding(.trailing, 4)
     }
 
     private var marker: String {
