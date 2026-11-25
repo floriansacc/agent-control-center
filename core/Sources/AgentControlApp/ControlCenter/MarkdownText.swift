@@ -36,19 +36,19 @@ struct MarkdownText: View {
     private func view(for block: Block) -> some View {
         switch block {
         case let .paragraph(text):
-            Text(Self.inline(text))
+            Text(inline(text))
         case let .heading(level, text):
-            Text(Self.inline(text))
+            Text(inline(text))
                 .font(level <= 1 ? .title3.bold() : level == 2 ? .headline : .subheadline.bold())
                 .padding(.top, 4)
         case let .listItem(indent, marker, text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(marker).foregroundStyle(theme.textSecondary).monospacedDigit()
-                Text(Self.inline(text))
+                Text(inline(text))
             }
             .padding(.leading, CGFloat(indent) * 16)
         case let .quote(text):
-            Text(Self.inline(text))
+            Text(inline(text))
                 .foregroundStyle(theme.textSecondary)
                 .padding(.leading, 10)
                 .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 3) }
@@ -70,7 +70,7 @@ struct MarkdownText: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 GridRow {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                        Text(Self.inline(cell))
+                        Text(inline(cell))
                             .fontWeight(index == 0 ? .semibold : nil)
                             .frame(maxWidth: 360, alignment: .leading)
                     }
@@ -84,9 +84,30 @@ struct MarkdownText: View {
 
     // MARK: - Parsing
 
-    static func inline(_ text: String) -> AttributedString {
+    private func inline(_ text: String) -> AttributedString {
+        // The System theme's card (5% of the text color) is too faint for a chip.
+        Self.inline(text, code: theme.code, codeBackground: theme.isNative ? Color.primary.opacity(0.1) : theme.card)
+    }
+
+    /// Inline markdown, with `code` drawn as a chip: its own color on the Card color, padded by a narrow space
+    /// on each side (Text can color a run's background, not round or pad it).
+    static func inline(_ text: String, code: Color, codeBackground: Color) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        var result = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        let codeRanges = result.runs
+            .filter { $0.inlinePresentationIntent?.contains(.code) == true }
+            .map(\.range)
+        // From the end, so the ranges still to style keep their positions.
+        for range in codeRanges.reversed() {
+            result[range].foregroundColor = code
+            result[range].backgroundColor = codeBackground
+            var pad = AttributedString("\u{202F}")
+            pad.backgroundColor = codeBackground
+            pad.inlinePresentationIntent = .code
+            result.insert(pad, at: range.upperBound)
+            result.insert(pad, at: range.lowerBound)
+        }
+        return result
     }
 
     static func parse(_ markdown: String) -> [Block] {

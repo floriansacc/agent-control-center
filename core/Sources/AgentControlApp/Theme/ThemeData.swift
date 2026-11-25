@@ -96,7 +96,7 @@ struct ThemeColor: Hashable, Codable {
 /// primary → accent, muted-foreground → secondary text, destructive → error).
 enum ThemeToken: String, CaseIterable, Codable, CodingKeyRepresentable, Identifiable {
     case background, sidebar, card, border
-    case text, textSecondary, textFaint
+    case text, textSecondary, textFaint, code
     case accent, accentForeground, bubble
     case working, waiting, done, error
 
@@ -112,7 +112,7 @@ enum ThemeToken: String, CaseIterable, Codable, CodingKeyRepresentable, Identifi
     var group: Group {
         switch self {
         case .background, .sidebar, .card, .border: .surfaces
-        case .text, .textSecondary, .textFaint: .text
+        case .text, .textSecondary, .textFaint, .code: .text
         case .accent, .accentForeground, .bubble: .accent
         case .working, .waiting, .done, .error: .status
         }
@@ -127,6 +127,7 @@ enum ThemeToken: String, CaseIterable, Codable, CodingKeyRepresentable, Identifi
         case .text: "Text"
         case .textSecondary: "Secondary text"
         case .textFaint: "Faint text"
+        case .code: "Inline code"
         case .accent: "Accent"
         case .accentForeground: "Text on accent"
         case .bubble: "Your messages"
@@ -146,6 +147,7 @@ enum ThemeToken: String, CaseIterable, Codable, CodingKeyRepresentable, Identifi
         case .text: "Claude's replies, session names."
         case .textSecondary: "Summaries, labels, tool calls."
         case .textFaint: "Times, hosts, least important details."
+        case .code: "`Code` in Claude's replies, drawn on the Card color."
         case .accent: "Selection, buttons, links, port chips."
         case .accentForeground: "Text and icons drawn on the accent color."
         case .bubble: "The background of your prompts."
@@ -159,7 +161,7 @@ enum ThemeToken: String, CaseIterable, Codable, CodingKeyRepresentable, Identifi
     /// Text drawn on these must stay readable: (text token, background token).
     static let contrastPairs: [(ThemeToken, ThemeToken)] = [
         (.text, .background), (.textSecondary, .background), (.text, .sidebar), (.textSecondary, .sidebar),
-        (.text, .bubble), (.accentForeground, .accent), (.text, .card),
+        (.text, .bubble), (.accentForeground, .accent), (.text, .card), (.code, .card),
     ]
 }
 

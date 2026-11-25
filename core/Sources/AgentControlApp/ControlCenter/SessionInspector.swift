@@ -7,6 +7,8 @@ struct SessionInspector: View {
     @Environment(\.theme) private var theme
     let session: Session
     @ObservedObject var app: AppModel
+    /// The changed file whose diff is open.
+    @State private var diffTarget: DiffTarget?
 
     var body: some View {
         ColumnScrollView {
@@ -21,6 +23,7 @@ struct SessionInspector: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .sheet(item: $diffTarget) { DiffSheet(target: $0) }
     }
 
     // MARK: - Sections
@@ -87,8 +90,12 @@ struct SessionInspector: View {
                 if git.isClean {
                     Text("No changes").font(.callout).foregroundStyle(theme.textSecondary)
                 }
-                FileList(title: "Staged", color: theme.done, paths: git.staged, total: git.stagedCount)
-                FileList(title: "Changes", color: theme.waiting, paths: git.changed, total: git.changedCount)
+                FileList(title: "Staged", color: theme.done, paths: git.staged, total: git.stagedCount) {
+                    diffTarget = DiffTarget(dir: session.cwd, path: $0, staged: true)
+                }
+                FileList(title: "Changes", color: theme.waiting, paths: git.changed, total: git.changedCount) {
+                    diffTarget = DiffTarget(dir: session.cwd, path: $0, staged: false)
+                }
             }
         }
     }
@@ -213,6 +220,8 @@ private struct FileList: View {
     let color: Color
     let paths: [String]
     let total: Int
+    /// Opens a path's diff.
+    let open: (String) -> Void
     @State private var showAll = false
 
     private static let shown = 8
@@ -222,11 +231,7 @@ private struct FileList: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(title) (\(total))").font(.callout.weight(.medium)).foregroundStyle(color)
                 ForEach(showAll ? paths : Array(paths.prefix(Self.shown)), id: \.self) { path in
-                    Text(path)
-                        .font(.caption.monospaced())
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                        .help(path)
+                    FileRow(path: path) { open(path) }
                 }
                 if paths.count > Self.shown {
                     Button(showAll ? "Show less" : "Show all") { showAll.toggle() }
@@ -238,5 +243,30 @@ private struct FileList: View {
                 }
             }
         }
+    }
+}
+
+/// A changed file: click to see its diff.
+private struct FileRow: View {
+    let path: String
+    let action: () -> Void
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(path)
+                .font(.caption.monospaced())
+                .lineLimit(1)
+                .truncationMode(.head)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 4).fill(hovering ? theme.text.opacity(0.08) : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("\(path)\nClick to see the diff")
     }
 }

@@ -55,6 +55,9 @@ enum ThemePresets {
 
     static let systemId = "system"
 
+    /// Inline code in every preset: a warm tone, as in Claude Code's VS Code panel.
+    static let codeColor = ThemeColor(0x9A3412, 0xD7BA7D)
+
     static func id(base: Base, accent: Accent) -> String { "\(base.id)-\(accent.id)" }
 
     static func make(base: Base, accent: Accent) -> Theme {
@@ -70,6 +73,7 @@ enum ThemePresets {
             .text: ThemeColor(light: base.shade(950), dark: base.shade(50)),
             .textSecondary: ThemeColor(light: base.shade(600), dark: base.shade(400)),
             .textFaint: ThemeColor(light: base.shade(500), dark: base.shade(500)),
+            .code: codeColor,
             .accent: ThemeColor(light: accentLight, dark: accentDark),
             .accentForeground: ThemeColor(
                 light: accent.foregroundLight.map(RGBA.init) ?? (accent.light == nil ? base.shade(50) : white),
@@ -115,6 +119,7 @@ enum ThemePresets {
             .text: resolve(.labelColor),
             .textSecondary: resolve(.secondaryLabelColor),
             .textFaint: resolve(.tertiaryLabelColor),
+            .code: codeColor,
             .accent: resolve(.controlAccentColor),
             .accentForeground: resolve(.alternateSelectedControlTextColor),
             .working: resolve(Palette.nsBlue),

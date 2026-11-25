@@ -33,6 +33,7 @@ enum CSSThemeImporter {
         .text: ["foreground", "text", "fg", "text-primary"],
         .textSecondary: ["muted-foreground", "text-secondary", "text-muted", "fg-muted", "subtle"],
         .textFaint: ["text-faint", "text-tertiary", "fg-subtle"],
+        .code: ["code", "code-foreground", "inline-code"],
         .accent: ["primary", "brand", "accent"],
         .accentForeground: ["primary-foreground", "on-primary", "brand-foreground", "accent-foreground"],
         .bubble: ["bubble", "chat-user"],

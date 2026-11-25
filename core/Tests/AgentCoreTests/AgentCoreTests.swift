@@ -379,4 +379,59 @@ final class AgentCoreTests: XCTestCase {
         XCTAssertFalse(stale.answerable)
         XCTAssertThrowsError(try Approvals.answer(sessionId: "s2", request: stale, .allow))
     }
+
+    func testParseDiff() {
+        let diff = GitDiff.parse("""
+        diff --git a/a.swift b/a.swift
+        index 1..2 100644
+        --- a/a.swift
+        +++ b/a.swift
+        @@ -10,3 +10,4 @@ func x() {
+         let a = 1
+        -let b = 2
+        +let b = 3
+        +let c = 4
+         return
+        \\ No newline at end of file
+        """, maxLines: 100)
+        XCTAssertEqual(diff.added, 2)
+        XCTAssertEqual(diff.removed, 1)
+        XCTAssertEqual(diff.lines.map(\.kind), [.hunk, .context, .removed, .added, .added, .context, .note])
+        XCTAssertEqual(diff.lines[2].text, "let b = 2")
+        XCTAssertEqual(diff.lines[2].oldNumber, 11)
+        XCTAssertEqual(diff.lines[4].newNumber, 12)
+        XCTAssertEqual(diff.lines[5].oldNumber, 12)
+        XCTAssertEqual(diff.lines[5].newNumber, 13)
+        XCTAssertTrue(GitDiff.parse("Binary files a/x.png and b/x.png differ", maxLines: 10).isBinary)
+        XCTAssertTrue(GitDiff.parse(String(repeating: "@@ -1 +1 @@\n+x\n", count: 10), maxLines: 5).truncated)
+    }
+
+    func testGitDiffOfModifiedStagedAndUntrackedFiles() throws {
+        let repo = FileManager.default.temporaryDirectory.appendingPathComponent("acc-diff-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try FileManager.default.createDirectory(at: repo.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        func git(_ args: String...) { _ = Shell.run("/usr/bin/git", ["-C", repo.path] + args) }
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "Test")
+        try "one\ntwo\n".write(to: repo.appendingPathComponent("sub/a.txt"), atomically: true, encoding: .utf8)
+        try "x\n".write(to: repo.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        git("add", ".")
+        git("commit", "-qm", "init")
+        try "one\nTWO\n".write(to: repo.appendingPathComponent("sub/a.txt"), atomically: true, encoding: .utf8)
+        try "x\ny\n".write(to: repo.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        git("add", "b.txt")
+        try "new\n".write(to: repo.appendingPathComponent("sub/new.txt"), atomically: true, encoding: .utf8)
+
+        // Asked from a subfolder, with paths relative to the root as git status gives them.
+        let dir = repo.appendingPathComponent("sub").path
+        let modified = try XCTUnwrap(GitDiff.diff(in: dir, path: "sub/a.txt", staged: false))
+        XCTAssertEqual(modified.lines.filter { $0.kind == .removed }.map(\.text), ["two"])
+        XCTAssertEqual(modified.lines.filter { $0.kind == .added }.map(\.text), ["TWO"])
+        let staged = try XCTUnwrap(GitDiff.diff(in: dir, path: "b.txt", staged: true))
+        XCTAssertEqual(staged.added, 1)
+        XCTAssertTrue(try XCTUnwrap(GitDiff.diff(in: dir, path: "b.txt", staged: false)).isEmpty)
+        let untracked = try XCTUnwrap(GitDiff.diff(in: dir, path: "sub/new.txt", staged: false))
+        XCTAssertEqual(untracked.lines.filter { $0.kind == .added }.map(\.text), ["new"])
+    }
 }

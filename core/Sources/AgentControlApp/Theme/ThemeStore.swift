@@ -20,6 +20,8 @@ struct ThemeColors: Equatable {
     var text: Color
     var textSecondary: Color
     var textFaint: Color
+    /// Inline code text; its background is `card`.
+    var code: Color
     var accent: Color
     var accentForeground: Color
     var bubble: Color
@@ -70,6 +72,7 @@ struct ThemeColors: Equatable {
         text: .primary,
         textSecondary: .secondary,
         textFaint: Color(nsColor: .tertiaryLabelColor),
+        code: Color(nsColor: Theme(id: "", name: "", colors: [.code: ThemePresets.codeColor]).nsColor(.code)),
         accent: .accentColor,
         accentForeground: .white,
         bubble: Palette.blue.opacity(0.13),
@@ -90,6 +93,7 @@ struct ThemeColors: Equatable {
         text = color(.text)
         textSecondary = color(.textSecondary)
         textFaint = color(.textFaint)
+        code = color(.code)
         accent = color(.accent)
         accentForeground = color(.accentForeground)
         bubble = color(.bubble)
@@ -101,7 +105,7 @@ struct ThemeColors: Equatable {
 
     private init(
         revision: Int, isNative: Bool, background: Color, sidebar: Color, card: Color, border: Color, text: Color,
-        textSecondary: Color, textFaint: Color, accent: Color, accentForeground: Color, bubble: Color,
+        textSecondary: Color, textFaint: Color, code: Color, accent: Color, accentForeground: Color, bubble: Color,
         working: Color, waiting: Color, done: Color, error: Color
     ) {
         self.revision = revision
@@ -113,6 +117,7 @@ struct ThemeColors: Equatable {
         self.text = text
         self.textSecondary = textSecondary
         self.textFaint = textFaint
+        self.code = code
         self.accent = accent
         self.accentForeground = accentForeground
         self.bubble = bubble
